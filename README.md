@@ -17,13 +17,16 @@ downloads apps straight onto the device — no reflash, no SD card shuffling.
 ## Repo layout
 
 ```
-catalog.toml          # master index — metadata + file list for every app
+catalog.toml          # master index — metadata + file lists for apps AND themes
 apps/
   snake/
     main.lua
   my-app/
     main.lua
     assets.bin
+themes/
+  meshcore/
+    theme.lua         # optionally with bundled wallpaper images beside it
 ```
 
 ## Catalog fields
@@ -40,12 +43,33 @@ category = "Games"       # optional install subfolder (Games, Tools, ...); omit 
 files = ["main.lua"]     # every file to download, relative to apps/<id>/
 ```
 
+## Themes
+
+`[[themes]]` entries in `catalog.toml` use the same fields (no `category`/`type`);
+files live under `themes/<id>/` with a `theme.lua` entry point. The device's
+Settings > Theme > Get button installs them to `/meshpunk/themes/<id>` (SD, or
+internal without a card), where the theme picker discovers them automatically.
+A theme returns `{ name, apply(t) }` — see `themes/meshcore/theme.lua` for the
+palette + procedural-background toolkit in action.
+
+```toml
+[[themes]]
+id = "meshcore"
+name = "MeshCore"
+author = "You"
+version = "1.0.0"
+description = "One line shown in the theme library"
+files = ["theme.lua"]
+```
+
 ## Contributing an app
 
 1. Fork this repo.
 2. Add your app under `apps/<id>/` — it must have a `main.lua` entry point.
 3. Add an entry to `catalog.toml` listing **every** file in `files`.
 4. Open a PR.
+
+Themes contribute the same way under `themes/<id>/` with a `[[themes]]` entry.
 
 ### App guidelines
 

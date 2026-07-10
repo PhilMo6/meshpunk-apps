@@ -34,3 +34,11 @@ version = "1.1.0"
 type = "lua"
 description = "Minimal test app"
 files = ["main.lua"]
+
+[[themes]]
+id = "meshcore"
+name = "MeshCore"
+author = "PhilMo6"
+version = "1.0.0"
+description = "LoRa mesh night map with signal traces"
+files = ["theme.lua"]
