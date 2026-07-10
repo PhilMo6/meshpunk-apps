@@ -1,13 +1,13 @@
 # meshpunk-apps
 
 App repository for the [Meshpunk](https://github.com/PhilMo6/meshpunk) T-Deck firmware.
-The on-device **App Store** app reads `catalog.toml` from this repo over WiFi and
+The on-device **App Library** app reads `catalog.toml` from this repo over WiFi and
 downloads apps straight onto the device — no reflash, no SD card shuffling.
 
 ## How it works
 
-- `catalog.toml` is the single source of truth. The device fetches it, shows the list,
-  and downloads each file in an app's `files` array from `apps/<id>/`.
+- `catalog.toml` is the single source of truth. The device fetches it, shows the apps
+  grouped by category, and downloads each file in an app's `files` array from `apps/<id>/`.
 - An app only becomes visible to devices when its entry is merged into `catalog.toml`.
   Files sitting in `apps/` without a catalog entry are invisible — the catalog is the
   curation gate.

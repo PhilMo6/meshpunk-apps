@@ -9,7 +9,7 @@ updated = "2026-07-09"
 [[apps]]
 id = "snake"
 name = "Snake"
-author = "Phil"
+author = "PhilMo6"
 version = "1.0.0"
 type = "lua"
 description = "Classic snake game"
@@ -19,7 +19,7 @@ files = ["main.lua"]
 [[apps]]
 id = "calculator"
 name = "Calculator"
-author = "Phil"
+author = "PhilMo6"
 version = "1.0.0"
 type = "lua"
 description = "Basic calculator"
@@ -29,8 +29,8 @@ files = ["main.lua"]
 [[apps]]
 id = "hello"
 name = "Hello"
-author = "Phil"
-version = "1.0.0"
+author = "PhilMo6"
+version = "1.1.0"
 type = "lua"
 description = "Minimal test app"
 files = ["main.lua"]
