@@ -1,0 +1,36 @@
+# Meshpunk App Store catalog — the single source of truth.
+# An app only appears on devices when it has an entry here; files in apps/
+# without a catalog entry are invisible. See README.md for the field reference.
+
+[meta]
+version = 1
+updated = "2026-07-09"
+
+[[apps]]
+id = "snake"
+name = "Snake"
+author = "Phil"
+version = "1.0.0"
+type = "lua"
+description = "Classic snake game"
+category = "Games"
+files = ["main.lua"]
+
+[[apps]]
+id = "calculator"
+name = "Calculator"
+author = "Phil"
+version = "1.0.0"
+type = "lua"
+description = "Basic calculator"
+category = "Tools"
+files = ["main.lua"]
+
+[[apps]]
+id = "hello"
+name = "Hello"
+author = "Phil"
+version = "1.0.0"
+type = "lua"
+description = "Minimal test app"
+files = ["main.lua"]
