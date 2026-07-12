@@ -1,13 +1,155 @@
-# Meshpunk App Store catalog — the single source of truth.
-# An app only appears on devices when it has an entry here; files in apps/
-# without a catalog entry are invisible. See README.md for the field reference.
+# Meshpunk App Library catalog — the single source of truth.
+# An app/theme only appears on devices when it has an entry here; files in the
+# repo without a catalog entry are invisible. See README.md for the field
+# reference.
+#
+# `name` doubles as the on-device install folder — for apps that ship
+# preinstalled in firmware it MUST match the firmware folder name exactly
+# (case-sensitive) or installed-state tracking breaks.
+#
+# Preinstalled content ships with a .version marker at these same versions;
+# bumping a version here (with updated files) offers the update on-device.
 
 [meta]
 version = 1
-updated = "2026-07-09"
+updated = "2026-07-11"
+
+# ── Download-only apps (not shipped in firmware) ─────────────────────────────
 
 [[apps]]
-id = "snake"
+id = "Doom"
+name = "Doom"
+author = "PhilMo6"
+version = "1.0.0"
+type = "elf"
+description = "The classic FPS, running native"
+category = "Games"
+files = ["main.lua", "doom.app.elf"]
+
+[[apps]]
+id = "GameBoy"
+name = "GameBoy"
+author = "PhilMo6"
+version = "1.0.0"
+type = "elf"
+description = "Game Boy emulator (gnuboy)"
+category = "Games"
+files = ["main.lua", "gameboy.app.elf"]
+
+[[apps]]
+id = "PICO-8"
+name = "PICO-8"
+author = "PhilMo6"
+version = "1.0.0"
+type = "elf"
+description = "PICO-8 fantasy console player"
+category = "Games"
+files = ["main.lua", "pico8.app.elf"]
+
+[[apps]]
+id = "PC-XT"
+name = "PC-XT"
+author = "PhilMo6"
+version = "1.0.0"
+type = "elf"
+description = "IBM PC/XT DOS emulator (Faux86)"
+category = "Games"
+files = [
+  "main.lua",
+  "pcxt.app.elf",
+  "asciicga.dat",
+  "asciivga.dat",
+  "cgachar.bin",
+  "pcxtbios.bin",
+  "rombasic.bin",
+  "videorom.bin",
+]
+
+[[apps]]
+id = "Music"
+name = "Music"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "MP3 player with library, tags and background playback"
+files = ["main.lua"]
+
+[[apps]]
+id = "Code_Editor"
+name = "Code Editor"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "On-device Lua code editor"
+category = "Tools"
+files = ["main.lua"]
+
+# ── Preinstalled apps (tracked for OTA updates) ──────────────────────────────
+
+[[apps]]
+id = "App_Library"
+name = "App Library"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "This app — browse and install apps and themes"
+files = ["main.lua"]
+
+[[apps]]
+id = "Map"
+name = "Map"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Offline tile map with mesh overlays"
+files = ["main.lua"]
+
+[[apps]]
+id = "Messenger"
+name = "Messenger"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "MeshCore LoRa messenger"
+files = ["main.lua"]
+
+[[apps]]
+id = "Flappy_Bird"
+name = "Flappy Bird"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Flappy Bird clone"
+category = "Games"
+files = [
+  "main.lua",
+  "bg_day.png",
+  "bird1.png",
+  "bird2.png",
+  "bird3.png",
+  "button_play.png",
+  "button_quit.png",
+  "land.png",
+  "medals.png",
+  "pipe_down.png",
+  "pipe_up.png",
+  "score.png",
+  "text_game_over.png",
+  "title.png",
+]
+
+[[apps]]
+id = "Scorched_Earth"
+name = "Scorched Earth"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Artillery duel classic"
+category = "Games"
+files = ["main.lua"]
+
+[[apps]]
+id = "Snake"
 name = "Snake"
 author = "PhilMo6"
 version = "1.0.0"
@@ -17,7 +159,7 @@ category = "Games"
 files = ["main.lua"]
 
 [[apps]]
-id = "calculator"
+id = "Calculator"
 name = "Calculator"
 author = "PhilMo6"
 version = "1.0.0"
@@ -27,13 +169,199 @@ category = "Tools"
 files = ["main.lua"]
 
 [[apps]]
-id = "hello"
-name = "Hello"
+id = "Files"
+name = "Files"
 author = "PhilMo6"
-version = "1.1.0"
+version = "1.0.0"
 type = "lua"
-description = "Minimal test app"
+description = "File manager for internal flash and SD"
+category = "Tools"
 files = ["main.lua"]
+
+[[apps]]
+id = "Notes"
+name = "Notes"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Quick notes"
+category = "Tools"
+files = ["main.lua"]
+
+[[apps]]
+id = "USB"
+name = "USB"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "USB host tools"
+category = "Tools"
+files = ["main.lua"]
+
+[[apps]]
+id = "Device"
+name = "Device"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Device settings"
+category = "Settings"
+files = ["main.lua"]
+
+[[apps]]
+id = "Emoji"
+name = "Emoji"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Emoji settings"
+category = "Settings"
+files = ["main.lua"]
+
+[[apps]]
+id = "Identity"
+name = "Identity"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Mesh identity settings"
+category = "Settings"
+files = ["main.lua"]
+
+[[apps]]
+id = "Meshpunk"
+name = "Meshpunk"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Meshpunk settings"
+category = "Settings"
+files = ["main.lua"]
+
+[[apps]]
+id = "Notifications"
+name = "Notifications"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Notification settings"
+category = "Settings"
+files = ["main.lua"]
+
+[[apps]]
+id = "Radio"
+name = "Radio"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "LoRa radio settings"
+category = "Settings"
+files = ["main.lua"]
+
+[[apps]]
+id = "Sound"
+name = "Sound"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Sound settings"
+category = "Settings"
+files = ["main.lua"]
+
+[[apps]]
+id = "Theme"
+name = "Theme"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "UI theme picker and theme downloads"
+category = "Settings"
+files = ["main.lua"]
+
+[[apps]]
+id = "Wireless"
+name = "Wireless"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "WiFi and Bluetooth settings"
+category = "Settings"
+files = ["main.lua"]
+
+# ── Themes ───────────────────────────────────────────────────────────────────
+# All preinstalled themes are tracked at 1.0.0; meshcore is download-only.
+
+[[themes]]
+id = "amber_crt"
+name = "Amber CRT"
+author = "PhilMo6"
+version = "1.0.0"
+description = "Amber CRT phosphor"
+files = ["theme.lua"]
+
+[[themes]]
+id = "circut"
+name = "Circut"
+author = "PhilMo6"
+version = "1.0.0"
+description = "PCB circuit board"
+files = ["theme.lua"]
+
+[[themes]]
+id = "daylight"
+name = "Daylight"
+author = "PhilMo6"
+version = "1.0.0"
+description = "Bright daylight"
+files = ["theme.lua"]
+
+[[themes]]
+id = "default"
+name = "Default"
+author = "PhilMo6"
+version = "1.0.0"
+description = "Default dark"
+files = ["theme.lua"]
+
+[[themes]]
+id = "doom"
+name = "Doom"
+author = "PhilMo6"
+version = "1.0.0"
+description = "DOOM-styled"
+files = ["theme.lua"]
+
+[[themes]]
+id = "forest"
+name = "Forest"
+author = "PhilMo6"
+version = "1.0.0"
+description = "Forest greens"
+files = ["theme.lua"]
+
+[[themes]]
+id = "fractal"
+name = "Fractal"
+author = "PhilMo6"
+version = "1.0.0"
+description = "Fractal art"
+files = ["theme.lua"]
+
+[[themes]]
+id = "garden"
+name = "Garden"
+author = "PhilMo6"
+version = "1.0.0"
+description = "Garden blooms"
+files = ["theme.lua"]
+
+[[themes]]
+id = "hotpink_punk"
+name = "Hotpink Punk"
+author = "PhilMo6"
+version = "1.0.0"
+description = "Hot pink punk"
+files = ["theme.lua"]
 
 [[themes]]
 id = "meshcore"
@@ -41,4 +369,52 @@ name = "MeshCore"
 author = "PhilMo6"
 version = "1.0.0"
 description = "LoRa mesh night map with signal traces"
+files = ["theme.lua"]
+
+[[themes]]
+id = "midnight"
+name = "Midnight"
+author = "PhilMo6"
+version = "1.0.0"
+description = "Deep midnight"
+files = ["theme.lua"]
+
+[[themes]]
+id = "monthly"
+name = "Monthly"
+author = "PhilMo6"
+version = "1.0.0"
+description = "Changes with the month"
+files = ["theme.lua"]
+
+[[themes]]
+id = "pride"
+name = "Pride"
+author = "PhilMo6"
+version = "1.0.0"
+description = "Pride colors"
+files = ["theme.lua"]
+
+[[themes]]
+id = "rave"
+name = "Rave"
+author = "PhilMo6"
+version = "1.0.0"
+description = "Neon rave"
+files = ["theme.lua"]
+
+[[themes]]
+id = "sacred_geometry"
+name = "Sacred Geometry"
+author = "PhilMo6"
+version = "1.0.0"
+description = "Sacred geometry patterns"
+files = ["theme.lua"]
+
+[[themes]]
+id = "terminal_green"
+name = "Terminal Green"
+author = "PhilMo6"
+version = "1.0.0"
+description = "Green phosphor terminal"
 files = ["theme.lua"]
