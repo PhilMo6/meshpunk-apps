@@ -92,6 +92,7 @@ name = "App Library"
 author = "PhilMo6"
 version = "1.0.0"
 type = "lua"
+locked = true
 description = "This app — browse and install apps and themes"
 files = ["main.lua"]
 
