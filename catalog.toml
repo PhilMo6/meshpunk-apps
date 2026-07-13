@@ -9,10 +9,18 @@
 #
 # Preinstalled content ships with a .version marker at these same versions;
 # bumping a version here (with updated files) offers the update on-device.
+#
+# Optional per-entry `min_fw` (integer): the minimum firmware API level
+# (_FW_API, src/version.h in the firmware repo) the entry's files need.
+# Devices below it show "Needs FW" instead of Install/Update. Omit it for
+# content that runs on any firmware. App Library builds older than 1.0.1
+# ignore the field — until those age out, only publish gated entries when
+# the mismatch degrades gracefully. NEVER put min_fw on App_Library itself:
+# that update is what brings gating to old-firmware devices.
 
 [meta]
 version = 1
-updated = "2026-07-11"
+updated = "2026-07-13"
 
 # ── Download-only apps (not shipped in firmware) ─────────────────────────────
 
@@ -20,7 +28,7 @@ updated = "2026-07-11"
 id = "Doom"
 name = "Doom"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.1"
 type = "elf"
 description = "The classic FPS, running native"
 category = "Games"
@@ -30,7 +38,7 @@ files = ["main.lua", "doom.app.elf"]
 id = "GameBoy"
 name = "GameBoy"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.1"
 type = "elf"
 description = "Game Boy emulator (gnuboy)"
 category = "Games"
@@ -40,7 +48,7 @@ files = ["main.lua", "gameboy.app.elf"]
 id = "PICO-8"
 name = "PICO-8"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.1"
 type = "elf"
 description = "PICO-8 fantasy console player"
 category = "Games"
@@ -50,7 +58,7 @@ files = ["main.lua", "pico8.app.elf"]
 id = "PC-XT"
 name = "PC-XT"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.1"
 type = "elf"
 description = "IBM PC/XT DOS emulator (Faux86)"
 category = "Games"
@@ -90,7 +98,7 @@ files = ["main.lua"]
 id = "App_Library"
 name = "App Library"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.1"
 type = "lua"
 locked = true
 description = "This app — browse and install apps and themes"

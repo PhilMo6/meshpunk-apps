@@ -273,6 +273,7 @@ local function create_controls_screen() end
 local function create_bind_screen(action_idx, slot) end
 local function create_input_screen() end
 local function create_settings_screen() end
+local function create_help_screen() end
 
 -- ============================================================
 -- Main screen
@@ -377,9 +378,59 @@ create_main_screen = function()
         apps.go_home()
     end)
 
+    -- Small square "?" — documents the firmware's quit chord
+    local helpBtn = scr:Button{
+        w = 26, h = 26,
+        align = { type = lvgl.ALIGN.TOP_RIGHT, x_ofs = -4, y_ofs = 4 },
+    }
+    helpBtn:Label{ text = "?", align = lvgl.ALIGN.CENTER }
+    helpBtn:onClicked(function() create_help_screen() end)
+
     lvgl.group.get_default():add_obj(romDd)
     _gridnav_add(btnBox, GRIDNAV_ROLLOVER)
     lvgl.group.get_default():add_obj(btnBox)
+    lvgl.group.get_default():add_obj(helpBtn)
+end
+
+-- ============================================================
+-- Quit help screen (firmware-wide Alt+Backspace exit chord)
+-- ============================================================
+create_help_screen = function()
+    if scr then scr:delete() end
+
+    scr = root:Object({
+        w = W, h = H,
+        bg_color = "#000000", bg_opa = lvgl.OPA(255),
+        border_width = 0, pad_all = 0,
+    })
+    scr:clear_flag(lvgl.FLAG.SCROLLABLE)
+
+    scr:Label{
+        text = "QUIT TO LAUNCHER",
+        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_14,
+        text_color = "#9BBC0F",
+        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 10 },
+    }
+
+    scr:Label{
+        text = "While the game is running, hold\n"
+             .. "ALT + Backspace for about 1.5 seconds\n"
+             .. "to quit back to the launcher.\n\n"
+             .. "Works in every game and emulator,\n"
+             .. "on the built-in and USB keyboards.",
+        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_12,
+        text_color = "#CCCCCC",
+        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 56 },
+    }
+
+    local okBtn = scr:Button{
+        w = 80, h = 28,
+        align = { type = lvgl.ALIGN.BOTTOM_MID, y_ofs = -6 },
+    }
+    okBtn:Label{ text = "OK", align = lvgl.ALIGN.CENTER }
+    okBtn:onClicked(function() create_main_screen() end)
+
+    lvgl.group.get_default():add_obj(okBtn)
 end
 
 -- ============================================================

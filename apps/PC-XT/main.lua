@@ -329,6 +329,7 @@ local function create_controls_screen() end
 local function create_bind_screen(action_idx, slot) end
 local function create_input_screen() end
 local function create_settings_screen() end
+local function create_help_screen() end
 
 -- ============================================================
 -- Main screen
@@ -496,11 +497,63 @@ create_main_screen = function()
     quitBtn:Label{ text = "Quit", align = lvgl.ALIGN.CENTER }
     quitBtn:onClicked(function() apps.go_home() end)
 
+    -- Small square "?" — documents the firmware's quit chord
+    local helpBtn = scr:Button{
+        w = 26, h = 26,
+        align = { type = lvgl.ALIGN.TOP_RIGHT, x_ofs = -4, y_ofs = 4 },
+    }
+    helpBtn:Label{ text = "?", align = lvgl.ALIGN.CENTER }
+    helpBtn:onClicked(function() create_help_screen() end)
+
     local grp = lvgl.group.get_default()
     grp:add_obj(fdaDd)
     grp:add_obj(hdaDd)
     _gridnav_add(btnBox, GRIDNAV_ROLLOVER)
     grp:add_obj(btnBox)
+    grp:add_obj(helpBtn)
+end
+
+-- ============================================================
+-- Quit help screen (firmware-wide Alt+Backspace exit chord)
+-- ============================================================
+create_help_screen = function()
+    if scr then scr:delete() end
+
+    scr = root:Object({
+        w = W, h = H,
+        bg_color = "#000000", bg_opa = lvgl.OPA(255),
+        border_width = 0, pad_all = 0,
+    })
+    scr:clear_flag(lvgl.FLAG.SCROLLABLE)
+
+    scr:Label{
+        text = "QUIT TO LAUNCHER",
+        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_14,
+        text_color = "#55AAFF",
+        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 10 },
+    }
+
+    scr:Label{
+        text = "While the emulator is running, hold\n"
+             .. "ALT + Backspace for about 1.5 seconds\n"
+             .. "to quit back to the launcher.\n\n"
+             .. "Backspace on its own stays a normal\n"
+             .. "DOS key. Works in every game and\n"
+             .. "emulator, on the built-in and USB\n"
+             .. "keyboards.",
+        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_12,
+        text_color = "#CCCCCC",
+        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 56 },
+    }
+
+    local okBtn = scr:Button{
+        w = 80, h = 28,
+        align = { type = lvgl.ALIGN.BOTTOM_MID, y_ofs = -6 },
+    }
+    okBtn:Label{ text = "OK", align = lvgl.ALIGN.CENTER }
+    okBtn:onClicked(function() create_main_screen() end)
+
+    lvgl.group.get_default():add_obj(okBtn)
 end
 
 -- ============================================================
@@ -680,7 +733,7 @@ create_controls_screen = function()
     body("Everything is native: arrows, F1-F12,\nCtrl, Alt, Home/End/PgUp/PgDn/Ins/Del,\nCapsLock. NumLock inert: keypad = digits,\narrow keys always navigate.")
 
     head("Quit to launcher")
-    body("Hold Backspace about 1.5 seconds.")
+    body("Hold ALT + Backspace about 1.5 seconds.\nBackspace alone stays a normal DOS key.")
 
     local btnBar = scr:Object{
         w = W, h = 28,
