@@ -1,5 +1,6 @@
 local lvgl = require("lvgl")
 local apps = require("lib/apps")
+local nav = require("lib/nav")
 local fileman = require("lib/fileman")
 
 local app_dir = ...
@@ -268,6 +269,47 @@ table.sort(BINDABLE_KEYS, function(a, b) return a.name < b.name end)
 -- ============================================================
 -- Screen management
 -- ============================================================
+-- Every view is a single navigable scope: one flex container whose focusable
+-- children (buttons, dropdowns) are ALL direct children, so gridnav's
+-- trackball/WASD navigation reaches every one of them (it only walks direct
+-- children of the scope container). show_screen builds the new view and hands
+-- it to nav.replace BEFORE deleting the old one, so the outgoing gridnav stays
+-- alive across the handoff (App Library swap_view pattern).
+local FONT = lvgl.BUILTIN_FONT.MONTSERRAT_12
+local ACCENT = "#9BBC0F"
+
+-- Link-notice refresh timer (main screen only). Deleted on every screen
+-- change and on Quit so it can never fire against a deleted label; the
+-- Play path tears the whole Lua state down, which takes the timer with it.
+local notice_timer = nil
+
+local function show_screen(builder)
+    if notice_timer then notice_timer:delete(); notice_timer = nil end
+    local old = scr
+    scr = root:Object({
+        w = W, h = H, x = 0, y = 0,
+        bg_color = "#000000", bg_opa = lvgl.OPA(255),
+        border_width = 0, pad_all = 8,
+        flex = {
+            flex_direction = "row", flex_wrap = "wrap",
+            justify_content = "center", row_gap = 6, column_gap = 6,
+        },
+    })
+    builder(scr)
+    nav.replace(scr, { flags = nav.ROLLOVER + nav.SCROLL_FIRST })
+    if old then apps.delete_view(old) end
+end
+
+-- A full-width, non-focusable heading/label (gridnav skips non-clickables).
+local function heading(parent, text, color, font)
+    return parent:Label{
+        text = text,
+        text_font = font or FONT,
+        text_color = color or ACCENT,
+        w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+    }
+end
+
 local function create_main_screen() end
 local function create_controls_screen() end
 local function create_bind_screen(action_idx, slot) end
@@ -279,376 +321,268 @@ local function create_help_screen() end
 -- Main screen
 -- ============================================================
 create_main_screen = function()
-    if scr then scr:delete() end
-
-    scr = root:Object({
-        w = W, h = H,
-        bg_color = "#000000", bg_opa = lvgl.OPA(255),
-        border_width = 0, pad_all = 0,
-    })
-    -- Title
-    scr:Label{
-        text = "GAME BOY",
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_22,
-        text_color = "#9BBC0F",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 6 },
-    }
-
-    -- ROM selector — dropdown over all found ROMs
-    local rom_opts = "No ROMs found"
-    if #found_roms > 0 then
-        local names = {}
-        for i, r in ipairs(found_roms) do names[i] = r.name end
-        rom_opts = table.concat(names, "\n")
-    end
-
-    local romDd = scr:Dropdown{
-        options = rom_opts,
-        w = 260, h = 28,
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 32 },
-    }
-    if #found_roms > 0 then
-        romDd:set{ selected = selected_rom - 1 }
-    end
-    romDd:onevent(lvgl.EVENT.VALUE_CHANGED, function()
-        if #found_roms == 0 then return end
-        selected_rom = romDd:get("selected") + 1
-        save_config()
-    end)
-
-    -- Status
-    local has_roms = #found_roms > 0
-    local status = scr:Label{
-        text = has_roms and "Ready to play"
-               or "Place .gb/.gbc ROMs in S:/gb/",
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_14,
-        text_color = has_roms and "#888888" or "#FF6666",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 62 },
-    }
-
-    -- Action buttons
-    local btnBox = scr:Object{
-        w = 140, h = lvgl.SIZE_CONTENT,
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 80 },
-        bg_opa = 0, border_width = 0, pad_all = 4,
-        flex = {
-            flex_direction = "column",
-            row_gap = 6,
-        },
-    }
-    btnBox:clear_flag(lvgl.FLAG.SCROLLABLE)
-
-    local launchBtn = btnBox:Button{ w = lvgl.PCT(100), h = 34 }
-    launchBtn:Label{ text = "Play", align = lvgl.ALIGN.CENTER }
-    launchBtn:onClicked(function()
-        if #found_roms == 0 then
-            status:set{ text = "No .gb/.gbc ROM found!" }
-            return
-        end
-        status:set{ text = "Loading..." }
-        local km = build_keymap_string()
-        lvgl.Timer{
-            period = 50,
-            cb = function(t)
-                t:delete()
-                local r = found_roms[selected_rom]
-                -- Deferred launch: the firmware tears Lua down, runs the
-                -- module, then recreates Lua and returns to the launcher.
-                _launch_elf(ELF_PATH, to_vfs_path(r.path),
-                    "-pal", tostring(PALETTES[sel_palette].value),
-                    "-scale", SCALES[sel_scale].value,
-                    "-resume", resume_on and "1" or "0",
-                    "-keymap", km,
-                    "-trkball", build_trkball_string())
-            end
+    show_screen(function(c)
+        c:Label{
+            text = "GAME BOY",
+            text_font = lvgl.BUILTIN_FONT.MONTSERRAT_22,
+            text_color = ACCENT,
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
         }
+
+        -- ROM selector — dropdown over all found ROMs
+        local rom_opts = "No ROMs found"
+        if #found_roms > 0 then
+            local names = {}
+            for i, r in ipairs(found_roms) do names[i] = r.name end
+            rom_opts = table.concat(names, "\n")
+        end
+
+        local romDd = c:Dropdown{
+            options = rom_opts,
+            w = lvgl.PCT(100), h = 30,
+        }
+        if #found_roms > 0 then
+            romDd:set{ selected = selected_rom - 1 }
+        end
+        romDd:onevent(lvgl.EVENT.VALUE_CHANGED, function()
+            if #found_roms == 0 then return end
+            selected_rom = romDd:get("selected") + 1
+            save_config()
+        end)
+
+        -- Status
+        local has_roms = #found_roms > 0
+        local status = c:Label{
+            text = has_roms and "Ready to play"
+                   or "Place .gb/.gbc ROMs in S:/gb/",
+            text_font = FONT,
+            text_color = has_roms and "#888888" or "#FF6666",
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+        }
+
+        -- Link-cable notice. With a peer session up, the firmware pauses the
+        -- mesh radio for the whole linked game (it shares the SPI bus with
+        -- the link's display traffic) and resumes it on exit. Live-updated:
+        -- the session often establishes a second or two AFTER this screen
+        -- builds (or drops on unplug), so a one-shot check kept missing it.
+        -- Guarded so the app still runs on firmware without the binding.
+        if _gblink_status then
+            local notice = c:Label{
+                text = "Link cable connected!\n" ..
+                       "Mesh will PAUSE while playing\n" ..
+                       "to keep the link stable.",
+                text_font = FONT,
+                text_color = "#FFCC44",
+                w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+            }
+            local function refresh()
+                if _gblink_status() > 0 then
+                    notice:clear_flag(lvgl.FLAG.HIDDEN)
+                else
+                    notice:add_flag(lvgl.FLAG.HIDDEN)
+                end
+            end
+            refresh()
+            notice_timer = lvgl.Timer{ period = 1000, cb = refresh }
+        end
+
+        local launchBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+        launchBtn:Label{ text = "Play", align = lvgl.ALIGN.CENTER }
+        launchBtn:onClicked(function()
+            if #found_roms == 0 then
+                status:set{ text = "No .gb/.gbc ROM found!" }
+                return
+            end
+            status:set{ text = "Loading..." }
+            local km = build_keymap_string()
+            lvgl.Timer{
+                period = 50,
+                cb = function(t)
+                    t:delete()
+                    local r = found_roms[selected_rom]
+                    -- Deferred launch: the firmware tears Lua down, runs the
+                    -- module, then recreates Lua and returns to the launcher.
+                    -- -stackkb 24: gnuboy runs shallow, and the smaller rung
+                    -- lets the game task fit beside USB host mode (link
+                    -- cable) where big internal-RAM blocks are scarce.
+                    _launch_elf(ELF_PATH, to_vfs_path(r.path),
+                        "-pal", tostring(PALETTES[sel_palette].value),
+                        "-scale", SCALES[sel_scale].value,
+                        "-resume", resume_on and "1" or "0",
+                        "-keymap", km,
+                        "-trkball", build_trkball_string(),
+                        "-stackkb", "24")
+                end
+            }
+        end)
+
+        local ctrlBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+        ctrlBtn:Label{ text = "Controls", align = lvgl.ALIGN.CENTER }
+        ctrlBtn:onClicked(function() create_controls_screen() end)
+
+        local setBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+        setBtn:Label{ text = "Settings", align = lvgl.ALIGN.CENTER }
+        setBtn:onClicked(function() create_settings_screen() end)
+
+        local quitBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+        quitBtn:Label{ text = "Quit", align = lvgl.ALIGN.CENTER }
+        quitBtn:onClicked(function()
+            if notice_timer then notice_timer:delete(); notice_timer = nil end
+            apps.go_home()
+        end)
+
+        -- Documents the firmware's quit chord
+        local helpBtn = c:Button{ w = lvgl.PCT(48), h = 30 }
+        helpBtn:Label{ text = "Quit help", align = lvgl.ALIGN.CENTER }
+        helpBtn:onClicked(function() create_help_screen() end)
     end)
-
-    local ctrlBtn = btnBox:Button{ w = lvgl.PCT(100), h = 34 }
-    ctrlBtn:Label{ text = "Controls", align = lvgl.ALIGN.CENTER }
-    ctrlBtn:onClicked(function() create_controls_screen() end)
-
-    local setBtn = btnBox:Button{ w = lvgl.PCT(100), h = 34 }
-    setBtn:Label{ text = "Settings", align = lvgl.ALIGN.CENTER }
-    setBtn:onClicked(function() create_settings_screen() end)
-
-    local quitBtn = btnBox:Button{ w = lvgl.PCT(100), h = 34 }
-    quitBtn:Label{ text = "Quit", align = lvgl.ALIGN.CENTER }
-    quitBtn:onClicked(function()
-        apps.go_home()
-    end)
-
-    -- Small square "?" — documents the firmware's quit chord
-    local helpBtn = scr:Button{
-        w = 26, h = 26,
-        align = { type = lvgl.ALIGN.TOP_RIGHT, x_ofs = -4, y_ofs = 4 },
-    }
-    helpBtn:Label{ text = "?", align = lvgl.ALIGN.CENTER }
-    helpBtn:onClicked(function() create_help_screen() end)
-
-    lvgl.group.get_default():add_obj(romDd)
-    _gridnav_add(btnBox, GRIDNAV_ROLLOVER)
-    lvgl.group.get_default():add_obj(btnBox)
-    lvgl.group.get_default():add_obj(helpBtn)
 end
 
 -- ============================================================
 -- Quit help screen (firmware-wide Alt+Backspace exit chord)
 -- ============================================================
 create_help_screen = function()
-    if scr then scr:delete() end
+    show_screen(function(c)
+        heading(c, "QUIT TO LAUNCHER", ACCENT)
 
-    scr = root:Object({
-        w = W, h = H,
-        bg_color = "#000000", bg_opa = lvgl.OPA(255),
-        border_width = 0, pad_all = 0,
-    })
-    scr:clear_flag(lvgl.FLAG.SCROLLABLE)
+        c:Label{
+            text = "While the game is running, hold\n"
+                 .. "ALT + Backspace for about 1.5 seconds\n"
+                 .. "to quit back to the launcher.\n\n"
+                 .. "Works in every game and emulator,\n"
+                 .. "on the built-in and USB keyboards.",
+            text_font = FONT,
+            text_color = "#CCCCCC",
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+        }
 
-    scr:Label{
-        text = "QUIT TO LAUNCHER",
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_14,
-        text_color = "#9BBC0F",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 10 },
-    }
-
-    scr:Label{
-        text = "While the game is running, hold\n"
-             .. "ALT + Backspace for about 1.5 seconds\n"
-             .. "to quit back to the launcher.\n\n"
-             .. "Works in every game and emulator,\n"
-             .. "on the built-in and USB keyboards.",
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_12,
-        text_color = "#CCCCCC",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 56 },
-    }
-
-    local okBtn = scr:Button{
-        w = 80, h = 28,
-        align = { type = lvgl.ALIGN.BOTTOM_MID, y_ofs = -6 },
-    }
-    okBtn:Label{ text = "OK", align = lvgl.ALIGN.CENTER }
-    okBtn:onClicked(function() create_main_screen() end)
-
-    lvgl.group.get_default():add_obj(okBtn)
+        local okBtn = c:Button{ w = lvgl.PCT(60), h = 30 }
+        okBtn:Label{ text = "OK", align = lvgl.ALIGN.CENTER }
+        okBtn:onClicked(function() create_main_screen() end)
+    end)
 end
 
 -- ============================================================
 -- Settings screen (palette / scale / resume)
 -- ============================================================
+-- A label + value button pair; the value button cycles and persists. Both are
+-- direct children of the scope so the trackball can land on each button.
+local function setting_row(parent, label, get_text, on_click)
+    parent:Label{
+        text = label,
+        text_font = FONT,
+        text_color = "#CCCCCC",
+        w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+    }
+    local valBtn = parent:Button{ w = lvgl.PCT(100), h = 28 }
+    local valLbl = valBtn:Label{
+        text = get_text(),
+        text_font = FONT,
+        align = lvgl.ALIGN.CENTER,
+    }
+    valBtn:onClicked(function()
+        on_click()
+        valLbl:set{ text = get_text() }
+        save_config()
+    end)
+    return valBtn
+end
+
 create_settings_screen = function()
-    if scr then scr:delete() end
+    show_screen(function(c)
+        heading(c, "SETTINGS", ACCENT)
 
-    scr = root:Object({
-        w = W, h = H,
-        bg_color = "#000000", bg_opa = lvgl.OPA(255),
-        border_width = 0, pad_all = 0,
-    })
-    scr:clear_flag(lvgl.FLAG.SCROLLABLE)
+        -- DMG palette (GBC games ignore this)
+        setting_row(c, "GB palette",
+            function() return "< " .. PALETTES[sel_palette].label .. " >" end,
+            function()
+                sel_palette = sel_palette + 1
+                if sel_palette > #PALETTES then sel_palette = 1 end
+            end
+        )
 
-    scr:Label{
-        text = "SETTINGS",
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_14,
-        text_color = "#9BBC0F",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 4 },
-    }
+        -- Screen scale
+        setting_row(c, "Screen",
+            function() return "< " .. SCALES[sel_scale].label .. " >" end,
+            function()
+                sel_scale = sel_scale + 1
+                if sel_scale > #SCALES then sel_scale = 1 end
+            end
+        )
 
-    local font = lvgl.BUILTIN_FONT.MONTSERRAT_12
-    local list = scr:Object{
-        w = W - 4, h = H - 54,
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 22 },
-        bg_opa = 0, border_width = 0,
-        pad_left = 4, pad_right = 4, pad_top = 2, pad_bottom = 2,
-        flex = { flex_direction = "column", row_gap = 4 },
-    }
+        -- Resume toggle
+        setting_row(c, "Resume session",
+            function() return resume_on and "< ON >" or "< OFF >" end,
+            function() resume_on = not resume_on end
+        )
 
-    local function setting_row(parent, label, get_text, on_click)
-        local row = parent:Object{
-            w = lvgl.PCT(100), h = 26,
-            bg_opa = 0, border_width = 0, pad_all = 0,
-            flex = { flex_direction = "row", cross_place = "center" },
-        }
-        row:clear_flag(lvgl.FLAG.SCROLLABLE)
-
-        row:Label{
-            text = label,
-            text_font = font,
-            text_color = "#CCCCCC",
-            w = 120,
+        c:Label{
+            text = "GB palette: colors for original GB games\n"
+                 .. "Resume: save/restore full state on exit\n"
+                 .. "Battery saves (.sav) always work",
+            text_font = FONT,
+            text_color = "#666666",
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
         }
 
-        local valBtn = row:Button{ w = 130, h = 24 }
-        local valLbl = valBtn:Label{
-            text = get_text(),
-            text_font = font,
-            align = lvgl.ALIGN.CENTER,
-        }
-        valBtn:onClicked(function()
-            on_click()
-            valLbl:set{ text = get_text() }
-            save_config()
-        end)
-        return valBtn
-    end
-
-    -- DMG palette (GBC games ignore this)
-    setting_row(list, "GB palette",
-        function() return "< " .. PALETTES[sel_palette].label .. " >" end,
-        function()
-            sel_palette = sel_palette + 1
-            if sel_palette > #PALETTES then sel_palette = 1 end
-        end
-    )
-
-    -- Screen scale
-    setting_row(list, "Screen",
-        function() return "< " .. SCALES[sel_scale].label .. " >" end,
-        function()
-            sel_scale = sel_scale + 1
-            if sel_scale > #SCALES then sel_scale = 1 end
-        end
-    )
-
-    -- Resume toggle
-    setting_row(list, "Resume session",
-        function() return resume_on and "< ON >" or "< OFF >" end,
-        function() resume_on = not resume_on end
-    )
-
-    -- Info label
-    list:Label{
-        text = "GB palette: colors for original GB games\n"
-             .. "Resume: save/restore full state on exit\n"
-             .. "Battery saves (.sav) always work",
-        text_font = font,
-        text_color = "#666666",
-        w = lvgl.PCT(100),
-    }
-
-    -- Bottom buttons
-    local btnBar = scr:Object{
-        w = W, h = 28,
-        align = { type = lvgl.ALIGN.BOTTOM_MID, y_ofs = 0 },
-        bg_opa = 0, border_width = 0, pad_all = 0,
-        flex = {
-            flex_direction = "row",
-            justify_content = "center",
-            column_gap = 8,
-        },
-    }
-    btnBar:clear_flag(lvgl.FLAG.SCROLLABLE)
-
-    local backBtn = btnBar:Button{ w = 60, h = 26 }
-    backBtn:Label{ text = "Back", text_font = font, align = lvgl.ALIGN.CENTER }
-    backBtn:onClicked(function() create_main_screen() end)
-
-    _gridnav_add(list, GRIDNAV_ROLLOVER)
-    _gridnav_add(btnBar, GRIDNAV_ROLLOVER)
-    local grp = lvgl.group.get_default()
-    grp:add_obj(list)
-    grp:add_obj(btnBar)
+        local backBtn = c:Button{ w = lvgl.PCT(60), h = 28 }
+        backBtn:Label{ text = "Back", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        backBtn:onClicked(function() create_main_screen() end)
+    end)
 end
 
 -- ============================================================
 -- Controls overview screen
 -- ============================================================
 create_controls_screen = function()
-    if scr then scr:delete() end
+    show_screen(function(c)
+        heading(c, "CONTROLS", ACCENT)
 
-    scr = root:Object({
-        w = W, h = H,
-        bg_color = "#000000", bg_opa = lvgl.OPA(255),
-        border_width = 0, pad_all = 0,
-    })
-    scr:clear_flag(lvgl.FLAG.SCROLLABLE)
+        for idx, a in ipairs(ACTIONS) do
+            local b = bindings[a.id]
 
-    scr:Label{
-        text = "CONTROLS",
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_14,
-        text_color = "#9BBC0F",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 4 },
-    }
+            c:Label{
+                text = a.label,
+                text_font = FONT,
+                text_color = "#CCCCCC",
+                w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+            }
 
-    -- Scrollable list of actions
-    local list = scr:Object{
-        w = W - 4, h = H - 54,
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 22 },
-        bg_opa = 0, border_width = 0,
-        pad_left = 4, pad_right = 4, pad_top = 2, pad_bottom = 2,
-        flex = { flex_direction = "column" },
-    }
+            -- Primary key button
+            local k1btn = c:Button{ w = lvgl.PCT(48), h = 26 }
+            k1btn:Label{
+                text = key_display(b.key1),
+                text_font = FONT,
+                align = lvgl.ALIGN.CENTER,
+            }
+            k1btn:onClicked(function() create_bind_screen(idx, 1) end)
 
-    local font = lvgl.BUILTIN_FONT.MONTSERRAT_12
+            -- Alt key button
+            local k2btn = c:Button{ w = lvgl.PCT(48), h = 26 }
+            k2btn:Label{
+                text = key_display(b.key2),
+                text_font = FONT,
+                align = lvgl.ALIGN.CENTER,
+            }
+            k2btn:onClicked(function() create_bind_screen(idx, 2) end)
+        end
 
-    for idx, a in ipairs(ACTIONS) do
-        local b = bindings[a.id]
-        local row = list:Object{
-            w = lvgl.PCT(100), h = 22,
-            bg_opa = 0, border_width = 0, pad_all = 0,
-            flex = { flex_direction = "row", cross_place = "center" },
-        }
-        row:clear_flag(lvgl.FLAG.SCROLLABLE)
+        local defBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        defBtn:Label{ text = "Defaults", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        defBtn:onClicked(function()
+            load_defaults()
+            save_config()
+            create_controls_screen()
+        end)
 
-        row:Label{
-            text = a.label,
-            text_font = font,
-            text_color = "#CCCCCC",
-            w = 65,
-        }
+        local inputBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        inputBtn:Label{ text = "Input", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        inputBtn:onClicked(function() create_input_screen() end)
 
-        -- Primary key button
-        local k1btn = row:Button{ w = 75, h = 20 }
-        k1btn:Label{
-            text = key_display(b.key1),
-            text_font = font,
-            align = lvgl.ALIGN.CENTER,
-        }
-        k1btn:onClicked(function() create_bind_screen(idx, 1) end)
-
-        -- Alt key button
-        local k2btn = row:Button{ w = 75, h = 20 }
-        k2btn:Label{
-            text = key_display(b.key2),
-            text_font = font,
-            align = lvgl.ALIGN.CENTER,
-        }
-        k2btn:onClicked(function() create_bind_screen(idx, 2) end)
-    end
-
-    -- Bottom buttons
-    local btnBar = scr:Object{
-        w = W, h = 28,
-        align = { type = lvgl.ALIGN.BOTTOM_MID, y_ofs = 0 },
-        bg_opa = 0, border_width = 0, pad_all = 0,
-        flex = {
-            flex_direction = "row",
-            justify_content = "center",
-            column_gap = 8,
-        },
-    }
-    btnBar:clear_flag(lvgl.FLAG.SCROLLABLE)
-
-    local defBtn = btnBar:Button{ w = 70, h = 26 }
-    defBtn:Label{ text = "Defaults", text_font = font, align = lvgl.ALIGN.CENTER }
-    defBtn:onClicked(function()
-        load_defaults()
-        save_config()
-        create_controls_screen()
+        local backBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        backBtn:Label{ text = "Back", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        backBtn:onClicked(function() create_main_screen() end)
     end)
-
-    local inputBtn = btnBar:Button{ w = 60, h = 26 }
-    inputBtn:Label{ text = "Input", text_font = font, align = lvgl.ALIGN.CENTER }
-    inputBtn:onClicked(function() create_input_screen() end)
-
-    local backBtn = btnBar:Button{ w = 50, h = 26 }
-    backBtn:Label{ text = "Back", text_font = font, align = lvgl.ALIGN.CENTER }
-    backBtn:onClicked(function() create_main_screen() end)
-
-    _gridnav_add(list, GRIDNAV_ROLLOVER)
-    _gridnav_add(btnBar, GRIDNAV_ROLLOVER)
-    local grp = lvgl.group.get_default()
-    grp:add_obj(list)
-    grp:add_obj(btnBar)
 end
 
 -- ============================================================
@@ -657,205 +591,104 @@ end
 create_bind_screen = function(action_idx, slot)
     local a = ACTIONS[action_idx]
     local b = bindings[a.id]
-    if scr then scr:delete() end
+    show_screen(function(c)
+        local slot_name = (slot == 1) and "Primary" or "Alt"
+        heading(c, a.label .. " - " .. slot_name, ACCENT)
 
-    scr = root:Object({
-        w = W, h = H,
-        bg_color = "#000000", bg_opa = lvgl.OPA(255),
-        border_width = 0, pad_all = 0,
-    })
-    scr:clear_flag(lvgl.FLAG.SCROLLABLE)
+        local current = (slot == 1) and b.key1 or b.key2
 
-    local slot_name = (slot == 1) and "Primary" or "Alt"
-    scr:Label{
-        text = a.label .. " - " .. slot_name,
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_14,
-        text_color = "#9BBC0F",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 4 },
-    }
-
-    -- Scrollable key list
-    local list = scr:Object{
-        w = W - 4, h = H - 54,
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 22 },
-        bg_opa = 0, border_width = 0,
-        pad_left = 4, pad_right = 4, pad_top = 2, pad_bottom = 2,
-        flex = { flex_direction = "column" },
-    }
-
-    local font = lvgl.BUILTIN_FONT.MONTSERRAT_12
-    local current = (slot == 1) and b.key1 or b.key2
-
-    -- "Clear" option
-    local clrBtn = list:Button{ w = lvgl.PCT(100), h = 22 }
-    clrBtn:Label{ text = "--- (clear)", text_font = font, align = lvgl.ALIGN.CENTER }
-    clrBtn:onClicked(function()
-        if slot == 1 then b.key1 = nil else b.key2 = nil end
-        save_config()
-        create_controls_screen()
-    end)
-
-    -- Key options
-    for _, k in ipairs(BINDABLE_KEYS) do
-        local btn = list:Button{ w = lvgl.PCT(100), h = 22 }
-        local lbl = k.name
-        if k.code == current then lbl = "> " .. lbl .. " <" end
-        btn:Label{ text = lbl, text_font = font, align = lvgl.ALIGN.CENTER }
-        btn:onClicked(function()
-            if slot == 1 then b.key1 = k.code else b.key2 = k.code end
+        -- "Clear" option
+        local clrBtn = c:Button{ w = lvgl.PCT(100), h = 24 }
+        clrBtn:Label{ text = "--- (clear)", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        clrBtn:onClicked(function()
+            if slot == 1 then b.key1 = nil else b.key2 = nil end
             save_config()
             create_controls_screen()
         end)
-    end
 
-    -- Cancel button
-    local cancelBtn = scr:Button{
-        w = 80, h = 26,
-        align = { type = lvgl.ALIGN.BOTTOM_MID, y_ofs = -2 },
-    }
-    cancelBtn:Label{ text = "Cancel", text_font = font, align = lvgl.ALIGN.CENTER }
-    cancelBtn:onClicked(function() create_controls_screen() end)
+        -- Key options
+        for _, k in ipairs(BINDABLE_KEYS) do
+            local btn = c:Button{ w = lvgl.PCT(48), h = 24 }
+            local lbl = k.name
+            if k.code == current then lbl = "> " .. lbl .. " <" end
+            btn:Label{ text = lbl, text_font = FONT, align = lvgl.ALIGN.CENTER }
+            btn:onClicked(function()
+                if slot == 1 then b.key1 = k.code else b.key2 = k.code end
+                save_config()
+                create_controls_screen()
+            end)
+        end
 
-    _gridnav_add(list, GRIDNAV_ROLLOVER)
-    local grp = lvgl.group.get_default()
-    grp:add_obj(list)
-    grp:add_obj(cancelBtn)
+        local cancelBtn = c:Button{ w = lvgl.PCT(100), h = 26 }
+        cancelBtn:Label{ text = "Cancel", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        cancelBtn:onClicked(function() create_controls_screen() end)
+    end)
 end
 
 -- ============================================================
 -- Input settings screen (trackball momentum tuning)
 -- ============================================================
 create_input_screen = function()
-    if scr then scr:delete() end
+    show_screen(function(c)
+        heading(c, "INPUT SETTINGS", ACCENT)
 
-    scr = root:Object({
-        w = W, h = H,
-        bg_color = "#000000", bg_opa = lvgl.OPA(255),
-        border_width = 0, pad_all = 0,
-    })
-    scr:clear_flag(lvgl.FLAG.SCROLLABLE)
+        -- Momentum toggle
+        setting_row(c, "Momentum",
+            function() return trk_momentum and "< ON >" or "< OFF >" end,
+            function() trk_momentum = not trk_momentum end
+        )
 
-    scr:Label{
-        text = "INPUT SETTINGS",
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_14,
-        text_color = "#9BBC0F",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 4 },
-    }
+        -- Impulse (sensitivity): 5..30, step 1
+        setting_row(c, "Sensitivity",
+            function() return string.format("< %.1f >", trk_impulse / 10) end,
+            function()
+                trk_impulse = trk_impulse + 1
+                if trk_impulse > 30 then trk_impulse = 5 end
+            end
+        )
 
-    local font = lvgl.BUILTIN_FONT.MONTSERRAT_12
-    local list = scr:Object{
-        w = W - 4, h = H - 54,
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 22 },
-        bg_opa = 0, border_width = 0,
-        pad_left = 4, pad_right = 4, pad_top = 2, pad_bottom = 2,
-        flex = { flex_direction = "column", row_gap = 4 },
-    }
+        -- Friction: 50..95, step 2
+        setting_row(c, "Friction",
+            function() return string.format("< %.2f >", trk_friction / 100) end,
+            function()
+                trk_friction = trk_friction + 2
+                if trk_friction > 95 then trk_friction = 50 end
+            end
+        )
 
-    local function setting_row(parent, label, get_text, on_click)
-        local row = parent:Object{
-            w = lvgl.PCT(100), h = 26,
-            bg_opa = 0, border_width = 0, pad_all = 0,
-            flex = { flex_direction = "row", cross_place = "center" },
+        -- Threshold: 2..10, step 1
+        setting_row(c, "Dead Zone",
+            function() return string.format("< %.1f >", trk_thresh / 10) end,
+            function()
+                trk_thresh = trk_thresh + 1
+                if trk_thresh > 10 then trk_thresh = 2 end
+            end
+        )
+
+        c:Label{
+            text = "Sensitivity: impulse per tick\n"
+                 .. "Friction: decay rate (lower=faster stop)\n"
+                 .. "Dead Zone: min velocity to register",
+            text_font = FONT,
+            text_color = "#666666",
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
         }
-        row:clear_flag(lvgl.FLAG.SCROLLABLE)
 
-        row:Label{
-            text = label,
-            text_font = font,
-            text_color = "#CCCCCC",
-            w = 120,
-        }
-
-        local valBtn = row:Button{ w = 130, h = 24 }
-        local valLbl = valBtn:Label{
-            text = get_text(),
-            text_font = font,
-            align = lvgl.ALIGN.CENTER,
-        }
-        valBtn:onClicked(function()
-            on_click()
-            valLbl:set{ text = get_text() }
+        local resetBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        resetBtn:Label{ text = "Reset", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        resetBtn:onClicked(function()
+            trk_momentum = true
+            trk_impulse = 15
+            trk_friction = 82
+            trk_thresh = 4
             save_config()
+            create_input_screen()
         end)
-        return valBtn
-    end
 
-    -- Momentum toggle
-    setting_row(list, "Momentum",
-        function() return trk_momentum and "< ON >" or "< OFF >" end,
-        function() trk_momentum = not trk_momentum end
-    )
-
-    -- Impulse (sensitivity): 5..30, step 1
-    setting_row(list, "Sensitivity",
-        function() return string.format("< %.1f >", trk_impulse / 10) end,
-        function()
-            trk_impulse = trk_impulse + 1
-            if trk_impulse > 30 then trk_impulse = 5 end
-        end
-    )
-
-    -- Friction: 50..95, step 2
-    setting_row(list, "Friction",
-        function() return string.format("< %.2f >", trk_friction / 100) end,
-        function()
-            trk_friction = trk_friction + 2
-            if trk_friction > 95 then trk_friction = 50 end
-        end
-    )
-
-    -- Threshold: 2..10, step 1
-    setting_row(list, "Dead Zone",
-        function() return string.format("< %.1f >", trk_thresh / 10) end,
-        function()
-            trk_thresh = trk_thresh + 1
-            if trk_thresh > 10 then trk_thresh = 2 end
-        end
-    )
-
-    -- Info label
-    list:Label{
-        text = "Sensitivity: impulse per tick\n"
-             .. "Friction: decay rate (lower=faster stop)\n"
-             .. "Dead Zone: min velocity to register",
-        text_font = font,
-        text_color = "#666666",
-        w = lvgl.PCT(100),
-    }
-
-    -- Bottom buttons
-    local btnBar = scr:Object{
-        w = W, h = 28,
-        align = { type = lvgl.ALIGN.BOTTOM_MID, y_ofs = 0 },
-        bg_opa = 0, border_width = 0, pad_all = 0,
-        flex = {
-            flex_direction = "row",
-            justify_content = "center",
-            column_gap = 8,
-        },
-    }
-    btnBar:clear_flag(lvgl.FLAG.SCROLLABLE)
-
-    local resetBtn = btnBar:Button{ w = 65, h = 26 }
-    resetBtn:Label{ text = "Reset", text_font = font, align = lvgl.ALIGN.CENTER }
-    resetBtn:onClicked(function()
-        trk_momentum = true
-        trk_impulse = 15
-        trk_friction = 82
-        trk_thresh = 4
-        save_config()
-        create_input_screen()
+        local backBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        backBtn:Label{ text = "Back", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        backBtn:onClicked(function() create_controls_screen() end)
     end)
-
-    local backBtn = btnBar:Button{ w = 60, h = 26 }
-    backBtn:Label{ text = "Back", text_font = font, align = lvgl.ALIGN.CENTER }
-    backBtn:onClicked(function() create_controls_screen() end)
-
-    _gridnav_add(list, GRIDNAV_ROLLOVER)
-    _gridnav_add(btnBar, GRIDNAV_ROLLOVER)
-    local grp = lvgl.group.get_default()
-    grp:add_obj(list)
-    grp:add_obj(btnBar)
 end
 
 -- ============================================================

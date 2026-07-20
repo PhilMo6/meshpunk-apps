@@ -20,7 +20,7 @@
 
 [meta]
 version = 1
-updated = "2026-07-13"
+updated = "2026-07-19"
 
 # ── Download-only apps (not shipped in firmware) ─────────────────────────────
 
@@ -28,7 +28,7 @@ updated = "2026-07-13"
 id = "Doom"
 name = "Doom"
 author = "PhilMo6"
-version = "1.0.1"
+version = "1.0.2"
 type = "elf"
 description = "The classic FPS, running native"
 category = "Games"
@@ -38,17 +38,19 @@ files = ["main.lua", "doom.app.elf"]
 id = "GameBoy"
 name = "GameBoy"
 author = "PhilMo6"
-version = "1.0.1"
+version = "1.2.1"
 type = "elf"
-description = "Game Boy emulator (gnuboy)"
+description = "Game Boy emulator (gnuboy) with T-Deck link cable"
 category = "Games"
+min_fw = 2
+drivers = ["tdeck"]
 files = ["main.lua", "gameboy.app.elf"]
 
 [[apps]]
 id = "PICO-8"
 name = "PICO-8"
 author = "PhilMo6"
-version = "1.0.1"
+version = "1.0.2"
 type = "elf"
 description = "PICO-8 fantasy console player"
 category = "Games"
@@ -58,7 +60,7 @@ files = ["main.lua", "pico8.app.elf"]
 id = "PC-XT"
 name = "PC-XT"
 author = "PhilMo6"
-version = "1.0.1"
+version = "1.0.2"
 type = "elf"
 description = "IBM PC/XT DOS emulator (Faux86)"
 category = "Games"
@@ -83,6 +85,18 @@ description = "MP3 player with library, tags and background playback"
 files = ["main.lua"]
 
 [[apps]]
+id = "Gamepad"
+name = "Gamepad"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Map a USB gamepad to T-Deck controls for any game"
+category = "Games"
+min_fw = 2
+drivers = ["gamepad"]
+files = ["main.lua"]
+
+[[apps]]
 id = "Code_Editor"
 name = "Code Editor"
 author = "PhilMo6"
@@ -98,7 +112,7 @@ files = ["main.lua"]
 id = "App_Library"
 name = "App Library"
 author = "PhilMo6"
-version = "1.0.1"
+version = "1.0.2"
 type = "lua"
 locked = true
 description = "This app — browse and install apps and themes"
@@ -123,6 +137,18 @@ type = "lua"
 locked = true
 description = "MeshCore LoRa messenger"
 files = ["main.lua"]
+
+[[apps]]
+id = "Read_Me"
+name = "Read Me"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "On-device user guide"
+files = ["main.lua"]
+# The guide documents level-2 features (alt+mic emoji search, the
+# alt+backspace home chord) — don't show it to firmware that lacks them.
+min_fw = 2
 
 [[apps]]
 id = "Flappy_Bird"
@@ -204,10 +230,11 @@ files = ["main.lua"]
 id = "USB"
 name = "USB"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.1.0"
 type = "lua"
-description = "USB host tools"
+description = "USB host tools and driver manager"
 category = "Tools"
+min_fw = 2
 files = ["main.lua"]
 
 [[apps]]
@@ -225,12 +252,15 @@ files = ["main.lua"]
 id = "Emoji"
 name = "Emoji"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.1.0"
 type = "lua"
 description = "Emoji settings"
 locked = true
 category = "Settings"
 files = ["main.lua"]
+# 1.1.0 uses the shared picker (lib/emoji_popup, hex search included) — the
+# lib + _emoji_popup_insert shipped at firmware API level 2.
+min_fw = 2
 
 [[apps]]
 id = "Identity"
@@ -439,3 +469,40 @@ author = "PhilMo6"
 version = "1.0.0"
 description = "Green phosphor terminal"
 files = ["theme.lua"]
+
+# ── USB drivers ──────────────────────────────────────────────────────────────
+# Dynamic .drv.elf modules for the USB host. Files download from
+# drivers/<id>/ and install into usb_drivers/<id>/ on L: (flash) or S: (SD);
+# the running firmware loads a matching driver at device attach — no restart.
+# `id` IS the install folder and MUST match what the driver/app expect
+# (e.g. the Gamepad app looks in usb_drivers/gamepad). Every driver needs
+# min_fw = 2 (the dynamic-driver firmware). Managed on-device from
+# Tools > USB > "USB drivers..."; an app's `drivers = ["<id>"]` auto-installs
+# the driver right after the app.
+
+[[drivers]]
+id = "gamepad"
+name = "gamepad"
+author = "PhilMo6"
+version = "1.0.0"
+min_fw = 2
+description = "USB HID gamepad — descriptor-driven, mappable to T-Deck inputs"
+files = ["gamepad.drv.elf", "match"]
+
+[[drivers]]
+id = "mouse"
+name = "mouse"
+author = "PhilMo6"
+version = "1.0.0"
+min_fw = 2
+description = "USB HID mouse — moves focus, left-click selects"
+files = ["mouse.drv.elf", "match"]
+
+[[drivers]]
+id = "tdeck"
+name = "tdeck"
+author = "PhilMo6"
+version = "1.0.0"
+min_fw = 2
+description = "T-Deck to T-Deck peer link over USB (GameBoy link cable)"
+files = ["tdeck.drv.elf", "match"]

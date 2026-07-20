@@ -1,5 +1,6 @@
 local lvgl = require("lvgl")
 local apps = require("lib/apps")
+local nav = require("lib/nav")
 local fileman = require("lib/fileman")
 
 local app_dir = ...
@@ -273,12 +274,22 @@ local function key_display(code)
     return KEY_NAMES[code] or string.format("0x%02X", code)
 end
 
+-- All available keys for binding (sorted for display)
+local BINDABLE_KEYS = {}
+for name, code in pairs(KEYS) do
+    BINDABLE_KEYS[#BINDABLE_KEYS + 1] = { name = name, code = code }
+end
+table.sort(BINDABLE_KEYS, function(a, b) return a.name < b.name end)
+
 -- ============================================================
 -- Screen management
 -- ============================================================
--- Stable, manager-registered root. The menu/controls/keymap views swap by
--- replacing `scr` (a CHILD of this root); the root itself is never deleted, so
--- apps.go_home() (and a future home/back key) can tear the app down cleanly.
+-- Stable, manager-registered root. Every view is a single navigable scope: one
+-- flex container whose focusable children (buttons, dropdowns) are ALL direct
+-- children, so gridnav's trackball/WASD navigation reaches every one of them
+-- (it only walks direct children of the scope container). show_screen builds
+-- the new view and hands it to nav.replace BEFORE deleting the old one, so the
+-- outgoing gridnav stays alive across the handoff (App Library swap_view).
 local root = apps.new_root({
     w = W, h = H,
     bg_color = "#000000", bg_opa = lvgl.OPA(255),
@@ -288,389 +299,319 @@ root:clear_flag(lvgl.FLAG.SCROLLABLE)
 
 local scr
 
+local FONT = lvgl.BUILTIN_FONT.MONTSERRAT_12
+local ACCENT = "#FF4444"
+
+local function show_screen(builder)
+    local old = scr
+    scr = root:Object({
+        w = W, h = H, x = 0, y = 0,
+        bg_color = "#000000", bg_opa = lvgl.OPA(255),
+        border_width = 0, pad_all = 8,
+        flex = {
+            flex_direction = "row", flex_wrap = "wrap",
+            justify_content = "center", row_gap = 6, column_gap = 6,
+        },
+    })
+    builder(scr)
+    nav.replace(scr, { flags = nav.ROLLOVER + nav.SCROLL_FIRST })
+    if old then apps.delete_view(old) end
+end
+
+-- A full-width, non-focusable heading/label (gridnav skips non-clickables).
+local function heading(parent, text, color, font)
+    return parent:Label{
+        text = text,
+        text_font = font or FONT,
+        text_color = color or ACCENT,
+        w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+    }
+end
+
+-- A label + value button pair; the value button cycles and persists. Both are
+-- direct children of the scope so the trackball can land on each button.
+local function setting_row(parent, label, get_text, on_click)
+    parent:Label{
+        text = label,
+        text_font = FONT,
+        text_color = "#CCCCCC",
+        w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+    }
+    local valBtn = parent:Button{ w = lvgl.PCT(100), h = 28 }
+    local valLbl = valBtn:Label{
+        text = get_text(),
+        text_font = FONT,
+        align = lvgl.ALIGN.CENTER,
+    }
+    valBtn:onClicked(function()
+        on_click()
+        valLbl:set{ text = get_text() }
+        save_config()
+    end)
+    return valBtn
+end
+
 local function create_main_screen() end
 local function create_controls_screen() end
 local function create_bind_screen(action_idx, slot) end
 local function create_input_screen() end
 local function create_help_screen() end
 
--- All available keys for binding (sorted for display)
-local BINDABLE_KEYS = {}
-for name, code in pairs(KEYS) do
-    BINDABLE_KEYS[#BINDABLE_KEYS + 1] = { name = name, code = code }
-end
-table.sort(BINDABLE_KEYS, function(a, b) return a.name < b.name end)
-
 -- ============================================================
 -- Main screen
 -- ============================================================
 create_main_screen = function()
-    if scr then scr:delete() end
-
-    scr = root:Object({
-        w = W, h = H,
-        bg_color = "#000000", bg_opa = lvgl.OPA(255),
-        border_width = 0, pad_all = 0,
-    })
-
-    -- Title
-    scr:Label{
-        text = "DOOM",
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_22,
-        text_color = "#FF4444",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 10 },
-    }
-
-    -- WAD selector — dropdown over all found WADs (mods tagged)
-    local wad_opts = "No WADs found"
-    if #found_wads > 0 then
-        local names = {}
-        for i, w in ipairs(found_wads) do
-            names[i] = w.name .. (w.wtype == "pwad" and " (mod)" or "")
-        end
-        wad_opts = table.concat(names, "\n")
-    end
-
-    local wadDd = scr:Dropdown{
-        options = wad_opts,
-        w = 240, h = 28,
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 44 },
-    }
-    if #found_wads > 0 then
-        wadDd:set{ selected = selected_wad - 1 }
-    end
-
-    -- Base IWAD selector (shown only when a PWAD is selected)
-    local base_row = scr:Object{
-        w = 240, h = 28,
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 76 },
-        bg_opa = 0, border_width = 0, pad_all = 0,
-        flex = { flex_direction = "row", cross_place = "center" },
-    }
-    base_row:clear_flag(lvgl.FLAG.SCROLLABLE)
-    base_row:Label{
-        text = "Base:",
-        text_color = "#AAAAAA",
-        w = 50,
-    }
-    local base_opts = "No base game"
-    if #iwad_list > 0 then
-        local names = {}
-        for i, b in ipairs(iwad_list) do names[i] = b.name end
-        base_opts = table.concat(names, "\n")
-    end
-    local baseDd = base_row:Dropdown{
-        options = base_opts,
-        w = 190, h = 28,
-    }
-    if #iwad_list > 0 then
-        baseDd:set{ selected = selected_base - 1 }
-    end
-
-    local function update_base_visibility()
-        local is_pwad = #found_wads > 0 and found_wads[selected_wad].wtype == "pwad"
-        if is_pwad then
-            base_row:clear_flag(lvgl.FLAG.HIDDEN)
-        else
-            base_row:add_flag(lvgl.FLAG.HIDDEN)
-        end
-    end
-    update_base_visibility()
-
-    wadDd:onevent(lvgl.EVENT.VALUE_CHANGED, function()
-        if #found_wads == 0 then return end
-        selected_wad = wadDd:get("selected") + 1
-        update_base_visibility()
-        save_config()
-    end)
-
-    baseDd:onevent(lvgl.EVENT.VALUE_CHANGED, function()
-        if #iwad_list == 0 then return end
-        selected_base = baseDd:get("selected") + 1
-        save_config()
-    end)
-
-    -- Status
-    local has_wads = #found_wads > 0
-    local status = scr:Label{
-        text = has_wads and "Ready to launch"
-               or "Place a .WAD in " .. sd_app_dir,
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_14,
-        text_color = has_wads and "#888888" or "#FF6666",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 110 },
-    }
-
-    -- Options row: SFX + Music toggles
-    local optBox = scr:Object{
-        w = 260, h = lvgl.SIZE_CONTENT,
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 138 },
-        bg_opa = 0, border_width = 0, pad_all = 0,
-        flex = {
-            flex_direction = "row",
-            justify_content = "center",
-            column_gap = 8,
-        },
-    }
-    optBox:clear_flag(lvgl.FLAG.SCROLLABLE)
-
-    local sfxBtn = optBox:Button{ w = 100, h = 28 }
-    local sfxLbl = sfxBtn:Label{
-        text = sfx_enabled and "SFX: ON" or "SFX: OFF",
-        align = lvgl.ALIGN.CENTER,
-    }
-    sfxBtn:onClicked(function()
-        sfx_enabled = not sfx_enabled
-        sfxLbl:set{ text = sfx_enabled and "SFX: ON" or "SFX: OFF" }
-        save_config()
-    end)
-
-    local musBtn = optBox:Button{ w = 100, h = 28 }
-    local musLbl = musBtn:Label{
-        text = music_enabled and "Music: ON" or "Music: OFF",
-        align = lvgl.ALIGN.CENTER,
-    }
-    musBtn:onClicked(function()
-        music_enabled = not music_enabled
-        musLbl:set{ text = music_enabled and "Music: ON" or "Music: OFF" }
-        save_config()
-    end)
-
-    -- Action buttons
-    local btnBox = scr:Object{
-        w = 260, h = lvgl.SIZE_CONTENT,
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 175 },
-        bg_opa = 0, border_width = 0, pad_all = 4,
-        flex = {
-            flex_direction = "row",
-            flex_wrap = "wrap",
-            justify_content = "center",
-            column_gap = 8,
-        },
-    }
-    btnBox:clear_flag(lvgl.FLAG.SCROLLABLE)
-
-    local launchBtn = btnBox:Button{ w = 75, h = 34 }
-    launchBtn:Label{ text = "Play", align = lvgl.ALIGN.CENTER }
-    launchBtn:onClicked(function()
-        if #found_wads == 0 then
-            status:set{ text = "No WAD file found!" }
-            return
-        end
-        status:set{ text = "Loading Doom..." }
-        local wad = found_wads[selected_wad].path
-        local km = build_keymap_string()
-        lvgl.Timer{
-            period = 50,
-            cb = function(t)
-                t:delete()
-                local w = found_wads[selected_wad]
-                local vfs_wad = to_vfs_path(w.path)
-                local wad_dir = vfs_wad:match("^(.*)/") or "."
-                local args = {}
-
-                if w.wtype == "pwad" then
-                    -- PWADs need a base IWAD
-                    if #iwad_list == 0 then
-                        status:set{ text = "No base IWAD found!" }
-                        return
-                    end
-                    local base = iwad_list[selected_base]
-                    local vfs_base = to_vfs_path(base.path)
-                    args = {ELF_PATH, "-iwad", vfs_base,
-                            "-file", vfs_wad,
-                            "-configdir", wad_dir}
-                else
-                    args = {ELF_PATH, "-iwad", vfs_wad,
-                            "-configdir", wad_dir}
-                end
-                -- Independent audio flags: -nosfx keeps music alive (the
-                -- module pumps it via the music Poll), unlike -nosound.
-                if not sfx_enabled then
-                    args[#args + 1] = "-nosfx"
-                end
-                if not music_enabled then
-                    args[#args + 1] = "-nomusic"
-                end
-                args[#args + 1] = "-keymap"
-                args[#args + 1] = km
-                args[#args + 1] = "-trkball"
-                args[#args + 1] = build_trkball_string()
-                -- Deferred launch: the firmware tears Lua down, runs Doom, then
-                -- recreates Lua and returns to the launcher home. _launch_elf only
-                -- queues the request, so there's no result to handle here.
-                _launch_elf(table.unpack(args))
-            end
+    show_screen(function(c)
+        c:Label{
+            text = "DOOM",
+            text_font = lvgl.BUILTIN_FONT.MONTSERRAT_22,
+            text_color = ACCENT,
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
         }
+
+        -- WAD selector — dropdown over all found WADs (mods tagged)
+        local wad_opts = "No WADs found"
+        if #found_wads > 0 then
+            local names = {}
+            for i, w in ipairs(found_wads) do
+                names[i] = w.name .. (w.wtype == "pwad" and " (mod)" or "")
+            end
+            wad_opts = table.concat(names, "\n")
+        end
+
+        local wadDd = c:Dropdown{
+            options = wad_opts,
+            w = lvgl.PCT(100), h = 28,
+        }
+        if #found_wads > 0 then
+            wadDd:set{ selected = selected_wad - 1 }
+        end
+
+        -- Base IWAD selector (shown only when a PWAD is selected)
+        local base_lbl = c:Label{
+            text = "Base game (for mods):",
+            text_font = FONT, text_color = "#AAAAAA",
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+        }
+        local base_opts = "No base game"
+        if #iwad_list > 0 then
+            local names = {}
+            for i, b in ipairs(iwad_list) do names[i] = b.name end
+            base_opts = table.concat(names, "\n")
+        end
+        local baseDd = c:Dropdown{
+            options = base_opts,
+            w = lvgl.PCT(100), h = 28,
+        }
+        if #iwad_list > 0 then
+            baseDd:set{ selected = selected_base - 1 }
+        end
+
+        local function update_base_visibility()
+            local is_pwad = #found_wads > 0 and found_wads[selected_wad].wtype == "pwad"
+            if is_pwad then
+                base_lbl:clear_flag(lvgl.FLAG.HIDDEN)
+                baseDd:clear_flag(lvgl.FLAG.HIDDEN)
+            else
+                base_lbl:add_flag(lvgl.FLAG.HIDDEN)
+                baseDd:add_flag(lvgl.FLAG.HIDDEN)
+            end
+        end
+        update_base_visibility()
+
+        wadDd:onevent(lvgl.EVENT.VALUE_CHANGED, function()
+            if #found_wads == 0 then return end
+            selected_wad = wadDd:get("selected") + 1
+            update_base_visibility()
+            save_config()
+        end)
+
+        baseDd:onevent(lvgl.EVENT.VALUE_CHANGED, function()
+            if #iwad_list == 0 then return end
+            selected_base = baseDd:get("selected") + 1
+            save_config()
+        end)
+
+        -- Status
+        local has_wads = #found_wads > 0
+        local status = c:Label{
+            text = has_wads and "Ready to launch"
+                   or "Place a .WAD in " .. sd_app_dir,
+            text_font = FONT,
+            text_color = has_wads and "#888888" or "#FF6666",
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+        }
+
+        -- Options: SFX + Music toggles
+        local sfxBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        local sfxLbl = sfxBtn:Label{
+            text = sfx_enabled and "SFX: ON" or "SFX: OFF",
+            align = lvgl.ALIGN.CENTER,
+        }
+        sfxBtn:onClicked(function()
+            sfx_enabled = not sfx_enabled
+            sfxLbl:set{ text = sfx_enabled and "SFX: ON" or "SFX: OFF" }
+            save_config()
+        end)
+
+        local musBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        local musLbl = musBtn:Label{
+            text = music_enabled and "Music: ON" or "Music: OFF",
+            align = lvgl.ALIGN.CENTER,
+        }
+        musBtn:onClicked(function()
+            music_enabled = not music_enabled
+            musLbl:set{ text = music_enabled and "Music: ON" or "Music: OFF" }
+            save_config()
+        end)
+
+        -- Action buttons
+        local launchBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+        launchBtn:Label{ text = "Play", align = lvgl.ALIGN.CENTER }
+        launchBtn:onClicked(function()
+            if #found_wads == 0 then
+                status:set{ text = "No WAD file found!" }
+                return
+            end
+            status:set{ text = "Loading Doom..." }
+            local km = build_keymap_string()
+            lvgl.Timer{
+                period = 50,
+                cb = function(t)
+                    t:delete()
+                    local w = found_wads[selected_wad]
+                    local vfs_wad = to_vfs_path(w.path)
+                    local wad_dir = vfs_wad:match("^(.*)/") or "."
+                    local args = {}
+
+                    if w.wtype == "pwad" then
+                        -- PWADs need a base IWAD
+                        if #iwad_list == 0 then
+                            status:set{ text = "No base IWAD found!" }
+                            return
+                        end
+                        local base = iwad_list[selected_base]
+                        local vfs_base = to_vfs_path(base.path)
+                        args = {ELF_PATH, "-iwad", vfs_base,
+                                "-file", vfs_wad,
+                                "-configdir", wad_dir}
+                    else
+                        args = {ELF_PATH, "-iwad", vfs_wad,
+                                "-configdir", wad_dir}
+                    end
+                    -- Independent audio flags: -nosfx keeps music alive (the
+                    -- module pumps it via the music Poll), unlike -nosound.
+                    if not sfx_enabled then
+                        args[#args + 1] = "-nosfx"
+                    end
+                    if not music_enabled then
+                        args[#args + 1] = "-nomusic"
+                    end
+                    args[#args + 1] = "-keymap"
+                    args[#args + 1] = km
+                    args[#args + 1] = "-trkball"
+                    args[#args + 1] = build_trkball_string()
+                    -- Deferred launch: the firmware tears Lua down, runs Doom, then
+                    -- recreates Lua and returns to the launcher home. _launch_elf only
+                    -- queues the request, so there's no result to handle here.
+                    _launch_elf(table.unpack(args))
+                end
+            }
+        end)
+
+        local ctrlBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+        ctrlBtn:Label{ text = "Controls", align = lvgl.ALIGN.CENTER }
+        ctrlBtn:onClicked(function() create_controls_screen() end)
+
+        local quitBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+        quitBtn:Label{ text = "Quit", align = lvgl.ALIGN.CENTER }
+        quitBtn:onClicked(function()
+            apps.go_home()   -- manager tears down the stable root (and its current view)
+        end)
+
+        -- Documents the firmware's quit chord
+        local helpBtn = c:Button{ w = lvgl.PCT(48), h = 30 }
+        helpBtn:Label{ text = "Quit help", align = lvgl.ALIGN.CENTER }
+        helpBtn:onClicked(function() create_help_screen() end)
     end)
-
-    local ctrlBtn = btnBox:Button{ w = 95, h = 34 }
-    ctrlBtn:Label{ text = "Controls", align = lvgl.ALIGN.CENTER }
-    ctrlBtn:onClicked(function() create_controls_screen() end)
-
-    local quitBtn = btnBox:Button{ w = 75, h = 34 }
-    quitBtn:Label{ text = "Quit", align = lvgl.ALIGN.CENTER }
-    quitBtn:onClicked(function()
-        apps.go_home()   -- manager tears down the stable root (and its current view)
-    end)
-
-    -- Small square "?" — documents the firmware's quit chord
-    local helpBtn = scr:Button{
-        w = 26, h = 26,
-        align = { type = lvgl.ALIGN.TOP_RIGHT, x_ofs = -4, y_ofs = 4 },
-    }
-    helpBtn:Label{ text = "?", align = lvgl.ALIGN.CENTER }
-    helpBtn:onClicked(function() create_help_screen() end)
-
-    lvgl.group.get_default():add_obj(wadDd)
-    lvgl.group.get_default():add_obj(baseDd)
-    _gridnav_add(optBox, GRIDNAV_ROLLOVER)
-    lvgl.group.get_default():add_obj(optBox)
-    _gridnav_add(btnBox, GRIDNAV_ROLLOVER)
-    lvgl.group.get_default():add_obj(btnBox)
-    lvgl.group.get_default():add_obj(helpBtn)
 end
 
 -- ============================================================
 -- Quit help screen (firmware-wide Alt+Backspace exit chord)
 -- ============================================================
 create_help_screen = function()
-    if scr then scr:delete() end
+    show_screen(function(c)
+        heading(c, "QUIT TO LAUNCHER", ACCENT)
 
-    scr = root:Object({
-        w = W, h = H,
-        bg_color = "#000000", bg_opa = lvgl.OPA(255),
-        border_width = 0, pad_all = 0,
-    })
-    scr:clear_flag(lvgl.FLAG.SCROLLABLE)
+        c:Label{
+            text = "While the game is running, hold\n"
+                 .. "ALT + Backspace for about 1.5 seconds\n"
+                 .. "to quit back to the launcher.\n\n"
+                 .. "Works in every game and emulator,\n"
+                 .. "on the built-in and USB keyboards.",
+            text_font = FONT,
+            text_color = "#CCCCCC",
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+        }
 
-    scr:Label{
-        text = "QUIT TO LAUNCHER",
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_14,
-        text_color = "#FF4444",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 10 },
-    }
-
-    scr:Label{
-        text = "While the game is running, hold\n"
-             .. "ALT + Backspace for about 1.5 seconds\n"
-             .. "to quit back to the launcher.\n\n"
-             .. "Works in every game and emulator,\n"
-             .. "on the built-in and USB keyboards.",
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_12,
-        text_color = "#CCCCCC",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 56 },
-    }
-
-    local okBtn = scr:Button{
-        w = 80, h = 28,
-        align = { type = lvgl.ALIGN.BOTTOM_MID, y_ofs = -6 },
-    }
-    okBtn:Label{ text = "OK", align = lvgl.ALIGN.CENTER }
-    okBtn:onClicked(function() create_main_screen() end)
-
-    lvgl.group.get_default():add_obj(okBtn)
+        local okBtn = c:Button{ w = lvgl.PCT(60), h = 30 }
+        okBtn:Label{ text = "OK", align = lvgl.ALIGN.CENTER }
+        okBtn:onClicked(function() create_main_screen() end)
+    end)
 end
 
 -- ============================================================
 -- Controls overview screen
 -- ============================================================
 create_controls_screen = function()
-    if scr then scr:delete() end
+    show_screen(function(c)
+        heading(c, "CONTROLS", ACCENT)
 
-    scr = root:Object({
-        w = W, h = H,
-        bg_color = "#000000", bg_opa = lvgl.OPA(255),
-        border_width = 0, pad_all = 0,
-    })
-    scr:clear_flag(lvgl.FLAG.SCROLLABLE)
+        for idx, a in ipairs(ACTIONS) do
+            local b = bindings[a.id]
 
-    scr:Label{
-        text = "CONTROLS",
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_14,
-        text_color = "#FF4444",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 4 },
-    }
+            c:Label{
+                text = a.label,
+                text_font = FONT,
+                text_color = "#CCCCCC",
+                w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+            }
 
-    -- Scrollable list of actions
-    local list = scr:Object{
-        w = W - 4, h = H - 54,
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 22 },
-        bg_opa = 0, border_width = 0,
-        pad_left = 4, pad_right = 4, pad_top = 2, pad_bottom = 2,
-        flex = { flex_direction = "column" },
-    }
+            -- Primary key button
+            local k1btn = c:Button{ w = lvgl.PCT(48), h = 24 }
+            k1btn:Label{
+                text = key_display(b.key1),
+                text_font = FONT,
+                align = lvgl.ALIGN.CENTER,
+            }
+            k1btn:onClicked(function() create_bind_screen(idx, 1) end)
 
-    local font = lvgl.BUILTIN_FONT.MONTSERRAT_12
+            -- Alt key button
+            local k2btn = c:Button{ w = lvgl.PCT(48), h = 24 }
+            k2btn:Label{
+                text = key_display(b.key2),
+                text_font = FONT,
+                align = lvgl.ALIGN.CENTER,
+            }
+            k2btn:onClicked(function() create_bind_screen(idx, 2) end)
+        end
 
-    for idx, a in ipairs(ACTIONS) do
-        local b = bindings[a.id]
-        local row = list:Object{
-            w = lvgl.PCT(100), h = 22,
-            bg_opa = 0, border_width = 0, pad_all = 0,
-            flex = { flex_direction = "row", cross_place = "center" },
-        }
-        row:clear_flag(lvgl.FLAG.SCROLLABLE)
+        local defBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        defBtn:Label{ text = "Defaults", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        defBtn:onClicked(function()
+            load_defaults()
+            save_config()
+            create_controls_screen()
+        end)
 
-        row:Label{
-            text = a.label,
-            text_font = font,
-            text_color = "#CCCCCC",
-            w = 95,
-        }
+        local inputBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        inputBtn:Label{ text = "Input", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        inputBtn:onClicked(function() create_input_screen() end)
 
-        -- Primary key button
-        local k1btn = row:Button{ w = 65, h = 20 }
-        k1btn:Label{
-            text = key_display(b.key1),
-            text_font = font,
-            align = lvgl.ALIGN.CENTER,
-        }
-        k1btn:onClicked(function() create_bind_screen(idx, 1) end)
-
-        -- Alt key button
-        local k2btn = row:Button{ w = 65, h = 20 }
-        k2btn:Label{
-            text = key_display(b.key2),
-            text_font = font,
-            align = lvgl.ALIGN.CENTER,
-        }
-        k2btn:onClicked(function() create_bind_screen(idx, 2) end)
-    end
-
-    -- Bottom buttons
-    local btnBar = scr:Object{
-        w = W, h = 28,
-        align = { type = lvgl.ALIGN.BOTTOM_MID, y_ofs = 0 },
-        bg_opa = 0, border_width = 0, pad_all = 0,
-        flex = {
-            flex_direction = "row",
-            justify_content = "center",
-            column_gap = 8,
-        },
-    }
-    btnBar:clear_flag(lvgl.FLAG.SCROLLABLE)
-
-    local defBtn = btnBar:Button{ w = 70, h = 26 }
-    defBtn:Label{ text = "Defaults", text_font = font, align = lvgl.ALIGN.CENTER }
-    defBtn:onClicked(function()
-        load_defaults()
-        save_config()
-        create_controls_screen()
+        local backBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        backBtn:Label{ text = "Back", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        backBtn:onClicked(function() create_main_screen() end)
     end)
-
-    local inputBtn = btnBar:Button{ w = 60, h = 26 }
-    inputBtn:Label{ text = "Input", text_font = font, align = lvgl.ALIGN.CENTER }
-    inputBtn:onClicked(function() create_input_screen() end)
-
-    local backBtn = btnBar:Button{ w = 50, h = 26 }
-    backBtn:Label{ text = "Back", text_font = font, align = lvgl.ALIGN.CENTER }
-    backBtn:onClicked(function() create_main_screen() end)
-
-    _gridnav_add(list, GRIDNAV_ROLLOVER)
-    _gridnav_add(btnBar, GRIDNAV_ROLLOVER)
-    local grp = lvgl.group.get_default()
-    grp:add_obj(list)
-    grp:add_obj(btnBar)
 end
 
 -- ============================================================
@@ -679,211 +620,104 @@ end
 create_bind_screen = function(action_idx, slot)
     local a = ACTIONS[action_idx]
     local b = bindings[a.id]
-    if scr then scr:delete() end
+    show_screen(function(c)
+        local slot_name = (slot == 1) and "Primary" or "Alt"
+        heading(c, a.label .. " - " .. slot_name, ACCENT)
 
-    scr = root:Object({
-        w = W, h = H,
-        bg_color = "#000000", bg_opa = lvgl.OPA(255),
-        border_width = 0, pad_all = 0,
-    })
-    scr:clear_flag(lvgl.FLAG.SCROLLABLE)
+        local current = (slot == 1) and b.key1 or b.key2
 
-    local slot_name = (slot == 1) and "Primary" or "Alt"
-    scr:Label{
-        text = a.label .. " - " .. slot_name,
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_14,
-        text_color = "#FF4444",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 4 },
-    }
-
-    -- Scrollable key list
-    local list = scr:Object{
-        w = W - 4, h = H - 54,
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 22 },
-        bg_opa = 0, border_width = 0,
-        pad_left = 4, pad_right = 4, pad_top = 2, pad_bottom = 2,
-        flex = { flex_direction = "column" },
-    }
-
-    local font = lvgl.BUILTIN_FONT.MONTSERRAT_12
-    local current = (slot == 1) and b.key1 or b.key2
-
-    -- "Clear" option
-    local clrBtn = list:Button{ w = lvgl.PCT(100), h = 22 }
-    clrBtn:Label{ text = "--- (clear)", text_font = font, align = lvgl.ALIGN.CENTER }
-    clrBtn:onClicked(function()
-        if slot == 1 then b.key1 = nil else b.key2 = nil end
-        save_config()
-        create_controls_screen()
-    end)
-
-    -- Key options
-    for _, k in ipairs(BINDABLE_KEYS) do
-        local btn = list:Button{ w = lvgl.PCT(100), h = 22 }
-        local lbl = k.name
-        if k.code == current then lbl = "> " .. lbl .. " <" end
-        btn:Label{ text = lbl, text_font = font, align = lvgl.ALIGN.CENTER }
-        btn:onClicked(function()
-            if slot == 1 then b.key1 = k.code else b.key2 = k.code end
+        -- "Clear" option
+        local clrBtn = c:Button{ w = lvgl.PCT(100), h = 24 }
+        clrBtn:Label{ text = "--- (clear)", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        clrBtn:onClicked(function()
+            if slot == 1 then b.key1 = nil else b.key2 = nil end
             save_config()
             create_controls_screen()
         end)
-    end
 
-    -- Cancel button
-    local cancelBtn = scr:Button{
-        w = 80, h = 26,
-        align = { type = lvgl.ALIGN.BOTTOM_MID, y_ofs = -2 },
-    }
-    cancelBtn:Label{ text = "Cancel", text_font = font, align = lvgl.ALIGN.CENTER }
-    cancelBtn:onClicked(function() create_controls_screen() end)
+        -- Key options
+        for _, k in ipairs(BINDABLE_KEYS) do
+            local btn = c:Button{ w = lvgl.PCT(48), h = 24 }
+            local lbl = k.name
+            if k.code == current then lbl = "> " .. lbl .. " <" end
+            btn:Label{ text = lbl, text_font = FONT, align = lvgl.ALIGN.CENTER }
+            btn:onClicked(function()
+                if slot == 1 then b.key1 = k.code else b.key2 = k.code end
+                save_config()
+                create_controls_screen()
+            end)
+        end
 
-    _gridnav_add(list, GRIDNAV_ROLLOVER)
-    local grp = lvgl.group.get_default()
-    grp:add_obj(list)
-    grp:add_obj(cancelBtn)
+        local cancelBtn = c:Button{ w = lvgl.PCT(100), h = 26 }
+        cancelBtn:Label{ text = "Cancel", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        cancelBtn:onClicked(function() create_controls_screen() end)
+    end)
 end
 
 -- ============================================================
 -- Input settings screen (trackball momentum tuning)
 -- ============================================================
 create_input_screen = function()
-    if scr then scr:delete() end
+    show_screen(function(c)
+        heading(c, "INPUT SETTINGS", ACCENT)
 
-    scr = root:Object({
-        w = W, h = H,
-        bg_color = "#000000", bg_opa = lvgl.OPA(255),
-        border_width = 0, pad_all = 0,
-    })
-    scr:clear_flag(lvgl.FLAG.SCROLLABLE)
+        -- Momentum toggle
+        setting_row(c, "Momentum",
+            function() return trk_momentum and "< ON >" or "< OFF >" end,
+            function() trk_momentum = not trk_momentum end
+        )
 
-    scr:Label{
-        text = "INPUT SETTINGS",
-        text_font = lvgl.BUILTIN_FONT.MONTSERRAT_14,
-        text_color = "#FF4444",
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 4 },
-    }
+        -- Impulse (sensitivity): 5..30, step 1 → displayed as x/10
+        setting_row(c, "Sensitivity",
+            function() return string.format("< %.1f >", trk_impulse / 10) end,
+            function()
+                trk_impulse = trk_impulse + 1
+                if trk_impulse > 30 then trk_impulse = 5 end
+            end
+        )
 
-    local font = lvgl.BUILTIN_FONT.MONTSERRAT_12
-    local list = scr:Object{
-        w = W - 4, h = H - 54,
-        align = { type = lvgl.ALIGN.TOP_MID, y_ofs = 22 },
-        bg_opa = 0, border_width = 0,
-        pad_left = 4, pad_right = 4, pad_top = 2, pad_bottom = 2,
-        flex = { flex_direction = "column", row_gap = 4 },
-    }
+        -- Friction: 50..95, step 2 → displayed as x/100
+        setting_row(c, "Friction",
+            function() return string.format("< %.2f >", trk_friction / 100) end,
+            function()
+                trk_friction = trk_friction + 2
+                if trk_friction > 95 then trk_friction = 50 end
+            end
+        )
 
-    -- Helper: create a row with label + value button (< value >)
-    local function setting_row(parent, label, get_text, on_left, on_right)
-        local row = parent:Object{
-            w = lvgl.PCT(100), h = 26,
-            bg_opa = 0, border_width = 0, pad_all = 0,
-            flex = { flex_direction = "row", cross_place = "center" },
+        -- Threshold: 2..10, step 1 → displayed as x/10
+        setting_row(c, "Dead Zone",
+            function() return string.format("< %.1f >", trk_thresh / 10) end,
+            function()
+                trk_thresh = trk_thresh + 1
+                if trk_thresh > 10 then trk_thresh = 2 end
+            end
+        )
+
+        c:Label{
+            text = "Sensitivity: impulse per tick\n"
+                 .. "Friction: decay rate (lower=faster stop)\n"
+                 .. "Dead Zone: min velocity to register",
+            text_font = FONT,
+            text_color = "#666666",
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
         }
-        row:clear_flag(lvgl.FLAG.SCROLLABLE)
 
-        row:Label{
-            text = label,
-            text_font = font,
-            text_color = "#CCCCCC",
-            w = 120,
-        }
-
-        local valBtn = row:Button{ w = 130, h = 24 }
-        local valLbl = valBtn:Label{
-            text = get_text(),
-            text_font = font,
-            align = lvgl.ALIGN.CENTER,
-        }
-        valBtn:onClicked(function()
-            on_right()
-            valLbl:set{ text = get_text() }
+        local resetBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        resetBtn:Label{ text = "Reset", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        resetBtn:onClicked(function()
+            trk_momentum = true
+            trk_impulse = 15
+            trk_friction = 82
+            trk_thresh = 4
             save_config()
+            create_input_screen()
         end)
-        -- Long press cycles backward (not all LVGL builds support this, but it's there)
-        return valBtn
-    end
 
-    -- Momentum toggle
-    setting_row(list, "Momentum",
-        function() return trk_momentum and "< ON >" or "< OFF >" end,
-        function() trk_momentum = not trk_momentum end,
-        function() trk_momentum = not trk_momentum end
-    )
-
-    -- Impulse (sensitivity): 5..30, step 1 → displayed as x/10
-    setting_row(list, "Sensitivity",
-        function() return string.format("< %.1f >", trk_impulse / 10) end,
-        function() trk_impulse = math.max(5, trk_impulse - 1) end,
-        function()
-            trk_impulse = trk_impulse + 1
-            if trk_impulse > 30 then trk_impulse = 5 end
-        end
-    )
-
-    -- Friction: 50..95, step 2 → displayed as x/100
-    setting_row(list, "Friction",
-        function() return string.format("< %.2f >", trk_friction / 100) end,
-        function() trk_friction = math.max(50, trk_friction - 2) end,
-        function()
-            trk_friction = trk_friction + 2
-            if trk_friction > 95 then trk_friction = 50 end
-        end
-    )
-
-    -- Threshold: 2..10, step 1 → displayed as x/10
-    setting_row(list, "Dead Zone",
-        function() return string.format("< %.1f >", trk_thresh / 10) end,
-        function() trk_thresh = math.max(2, trk_thresh - 1) end,
-        function()
-            trk_thresh = trk_thresh + 1
-            if trk_thresh > 10 then trk_thresh = 2 end
-        end
-    )
-
-    -- Info label
-    list:Label{
-        text = "Sensitivity: impulse per tick\n"
-             .. "Friction: decay rate (lower=faster stop)\n"
-             .. "Dead Zone: min velocity to register",
-        text_font = font,
-        text_color = "#666666",
-        w = lvgl.PCT(100),
-    }
-
-    -- Bottom buttons
-    local btnBar = scr:Object{
-        w = W, h = 28,
-        align = { type = lvgl.ALIGN.BOTTOM_MID, y_ofs = 0 },
-        bg_opa = 0, border_width = 0, pad_all = 0,
-        flex = {
-            flex_direction = "row",
-            justify_content = "center",
-            column_gap = 8,
-        },
-    }
-    btnBar:clear_flag(lvgl.FLAG.SCROLLABLE)
-
-    local resetBtn = btnBar:Button{ w = 65, h = 26 }
-    resetBtn:Label{ text = "Reset", text_font = font, align = lvgl.ALIGN.CENTER }
-    resetBtn:onClicked(function()
-        trk_momentum = true
-        trk_impulse = 15
-        trk_friction = 82
-        trk_thresh = 4
-        save_config()
-        create_input_screen()
+        local backBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        backBtn:Label{ text = "Back", text_font = FONT, align = lvgl.ALIGN.CENTER }
+        backBtn:onClicked(function() create_controls_screen() end)
     end)
-
-    local backBtn = btnBar:Button{ w = 60, h = 26 }
-    backBtn:Label{ text = "Back", text_font = font, align = lvgl.ALIGN.CENTER }
-    backBtn:onClicked(function() create_controls_screen() end)
-
-    _gridnav_add(list, GRIDNAV_ROLLOVER)
-    _gridnav_add(btnBar, GRIDNAV_ROLLOVER)
-    local grp = lvgl.group.get_default()
-    grp:add_obj(list)
-    grp:add_obj(btnBar)
 end
 
 -- ============================================================

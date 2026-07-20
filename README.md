@@ -17,7 +17,7 @@ downloads apps straight onto the device — no reflash, no SD card shuffling.
 ## Repo layout
 
 ```
-catalog.toml          # master index — metadata + file lists for apps AND themes
+catalog.toml          # master index — metadata + file lists for apps, themes AND drivers
 apps/
   snake/
     main.lua
@@ -27,6 +27,10 @@ apps/
 themes/
   meshcore/
     theme.lua         # optionally with bundled wallpaper images beside it
+drivers/
+  gamepad/
+    gamepad.drv.elf   # USB host driver module + its match manifest
+    match
 ```
 
 ## Catalog fields
@@ -41,6 +45,39 @@ type = "lua"             # "lua" or "elf" (elf = native binary via the ELF loade
 description = "One line shown in the store"
 category = "Games"       # optional install subfolder (Games, Tools, ...); omit for top level
 files = ["main.lua"]     # every file to download, relative to apps/<id>/
+min_fw = 2               # optional: minimum firmware API level (_FW_API) required
+drivers = ["gamepad"]    # optional: USB driver ids (below) to auto-install with the app
+```
+
+`min_fw` gates the entry — devices below that firmware API level show "Needs FW"
+instead of Install. `drivers` lists `[[drivers]]` ids the app depends on; the App
+Library installs each one right after the app (same location), skipping any already
+present. App removal never removes drivers — they're shared.
+
+## USB drivers
+
+`[[drivers]]` entries are dynamic USB host driver modules (`*.drv.elf`) plus a
+`match` manifest. Files live under `drivers/<id>/` and install into
+`usb_drivers/<id>/` on the device (internal flash `L:` or SD `S:`); the running
+firmware loads a matching driver the moment a device is plugged in — no restart.
+Manage them on-device from **Tools > USB > "USB drivers..."**. Every driver needs
+`min_fw = 2` (the firmware level that introduced dynamic drivers).
+
+The `id` **is** the install folder name and must match what the driver and its
+companion app expect (the Gamepad app looks in `usb_drivers/gamepad`), so unlike
+apps a driver's `id` and `name` are usually the same lowercase string. The `match`
+manifest holds one `class/subclass/protocol` triple per line (hex, `*` wildcards)
+that the firmware tests against each plugged-in device's interfaces.
+
+```toml
+[[drivers]]
+id = "gamepad"                          # == install folder usb_drivers/gamepad
+name = "gamepad"
+author = "You"
+version = "1.0.0"
+min_fw = 2
+description = "One line shown in the driver manager"
+files = ["gamepad.drv.elf", "match"]    # relative to drivers/<id>/
 ```
 
 ## Themes
