@@ -142,13 +142,13 @@ files = ["main.lua"]
 id = "Read_Me"
 name = "Read Me"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.2"
 type = "lua"
 description = "On-device user guide"
 files = ["main.lua"]
-# The guide documents level-2 features (alt+mic emoji search, the
-# alt+backspace home chord) — don't show it to firmware that lacks them.
-min_fw = 2
+# The guide documents features up to level 3 (USB drive mode) — don't show
+# it to firmware that lacks them.
+min_fw = 3
 
 [[apps]]
 id = "Flappy_Bird"
@@ -227,14 +227,26 @@ category = "Tools"
 files = ["main.lua"]
 
 [[apps]]
-id = "USB"
-name = "USB"
+id = "USB_Host"
+name = "USB Host"
 author = "PhilMo6"
 version = "1.1.0"
 type = "lua"
 description = "USB host tools and driver manager"
 category = "Tools"
 min_fw = 2
+files = ["main.lua"]
+
+[[apps]]
+id = "USB_Drive"
+name = "USB Drive"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Share the SD card with a PC as a USB thumb drive"
+category = "Tools"
+# Needs the _usbdrive_* bindings (firmware API level 3).
+min_fw = 3
 files = ["main.lua"]
 
 [[apps]]
