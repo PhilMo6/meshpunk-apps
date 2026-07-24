@@ -132,11 +132,12 @@ files = ["main.lua"]
 id = "Messenger"
 name = "Messenger"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.1.0"
 type = "lua"
 locked = true
 description = "MeshCore LoRa messenger"
 files = ["main.lua"]
+min_fw = 5
 
 [[apps]]
 id = "Read_Me"
