@@ -293,6 +293,7 @@ local function create_controls_screen() end
 local function create_bind_screen(action_idx, slot) end
 local function create_input_screen() end
 local function create_help_screen() end
+local function create_about_screen() end
 
 -- ============================================================
 -- Main screen
@@ -400,6 +401,10 @@ create_main_screen = function()
         helpBtn:Label{ text = "Quit help", align = lvgl.ALIGN.CENTER }
         helpBtn:onClicked(function() create_help_screen() end)
 
+        local aboutBtn = c:Button{ w = lvgl.PCT(48), h = 30 }
+        aboutBtn:Label{ text = "About", align = lvgl.ALIGN.CENTER }
+        aboutBtn:onClicked(function() create_about_screen() end)
+
         update_cart_preview()
     end)
 end
@@ -417,6 +422,50 @@ create_help_screen = function()
                  .. "to quit back to the launcher.\n\n"
                  .. "Works in every game and emulator,\n"
                  .. "on the built-in and USB keyboards.",
+            text_font = FONT,
+            text_color = "#CCCCCC",
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+        }
+
+        local okBtn = c:Button{ w = lvgl.PCT(60), h = 30 }
+        okBtn:Label{ text = "OK", align = lvgl.ALIGN.CENTER }
+        okBtn:onClicked(function() create_main_screen() end)
+    end)
+end
+
+-- ============================================================
+-- About screen — player license and credits.
+-- The scope container scrolls (nav.SCROLL_FIRST), so the text runs
+-- past the panel height without extra machinery.
+-- ============================================================
+create_about_screen = function()
+    show_screen(function(c)
+        heading(c, "ABOUT", ACCENT)
+
+        c:Label{
+            text = "Cart player: FAKE-08 by jtothebell\n"
+                 .. "License: MIT\n"
+                 .. "github.com/jtothebell/fake-08\n\n"
+                 .. "Not affiliated with or supported by\n"
+                 .. "Lexaloffle Games.\n\n"
+                 .. "T-Deck ELF conversion by mintylinux.\n\n"
+                 .. "Bundled libraries:\n"
+                 .. "z8lua (MIT) - Sam Hocevar\n"
+                 .. "Lua (MIT) - PUC-Rio\n"
+                 .. "LodePNG (zlib) - Lode Vandevenne\n"
+                 .. "miniz (MIT) - Rich Geldreich\n"
+                 .. "SimpleIni (MIT) - Brodie Thiesfield\n\n"
+                 .. "Code ported from:\n"
+                 .. "zepto8 (WTFPL-2) - Sam Hocevar\n"
+                 .. "  audio, tline, PNG decompression\n"
+                 .. "tac08 (MIT) - 0xcafed00d\n"
+                 .. "  sprite rendering, cart parsing\n"
+                 .. "PicoLove (zlib) - gamax92\n"
+                 .. "  noise synthesis\n"
+                 .. "LovePotion (MIT) - TurtleP\n\n"
+                 .. "PICO-8 is (c) Lexaloffle Games LLP.\n"
+                 .. "No carts are included - supply your\n"
+                 .. "own. Buy PICO-8 if you can.",
             text_font = FONT,
             text_color = "#CCCCCC",
             w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,

@@ -28,17 +28,39 @@ updated = "2026-07-19"
 id = "Doom"
 name = "Doom"
 author = "PhilMo6"
-version = "1.0.2"
+version = "1.0.3"
 type = "elf"
 description = "The classic FPS, running native"
 category = "Games"
 files = ["main.lua", "doom.app.elf"]
 
 [[apps]]
+id = "Nes"
+name = "Nes"
+author = "PhilMo6"
+version = "1.0.0"
+type = "elf"
+description = "NES emulator (Nofrendo)"
+category = "Games"
+min_fw = 6
+files = ["main.lua", "nes.app.elf"]
+
+[[apps]]
+id = "Snes"
+name = "Snes"
+author = "PhilMo6"
+version = "1.0.0"
+type = "elf"
+description = "SNES emulator (Snes9x)"
+category = "Games"
+min_fw = 6
+files = ["main.lua", "snes.app.elf"]
+
+[[apps]]
 id = "GameBoy"
 name = "GameBoy"
 author = "PhilMo6"
-version = "1.2.1"
+version = "1.2.2"
 type = "elf"
 description = "Game Boy emulator (gnuboy) with T-Deck link cable"
 category = "Games"
@@ -47,32 +69,40 @@ drivers = ["tdeck"]
 files = ["main.lua", "gameboy.app.elf"]
 
 [[apps]]
+id = "NeoGeoPocket"
+name = "NeoGeoPocket"
+author = "PhilMo6"
+version = "1.0.0"
+type = "elf"
+description = "Neo Geo Pocket emulator (RACE)"
+category = "Games"
+min_fw = 6
+files = ["main.lua", "ngpc.app.elf"]
+
+[[apps]]
 id = "PICO-8"
 name = "PICO-8"
 author = "PhilMo6"
-version = "1.0.2"
+version = "1.0.3"
 type = "elf"
 description = "PICO-8 fantasy console player"
 category = "Games"
 files = ["main.lua", "pico8.app.elf"]
 
 [[apps]]
-id = "PC-XT"
-name = "PC-XT"
+id = "Dos"
+name = "Dos"
 author = "PhilMo6"
-version = "1.0.2"
+version = "1.0.0"
 type = "elf"
-description = "IBM PC/XT DOS emulator (Faux86)"
+description = "386 DOS emulator: VGA, Adlib, Sound Blaster, PS/2 mouse"
 category = "Games"
+min_fw = 6
 files = [
   "main.lua",
-  "pcxt.app.elf",
-  "asciicga.dat",
-  "asciivga.dat",
-  "cgachar.bin",
-  "pcxtbios.bin",
-  "rombasic.bin",
-  "videorom.bin",
+  "dos.app.elf",
+  "bios.bin",
+  "vgabios.bin",
 ]
 
 [[apps]]

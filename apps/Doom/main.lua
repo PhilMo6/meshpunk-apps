@@ -356,6 +356,7 @@ local function create_controls_screen() end
 local function create_bind_screen(action_idx, slot) end
 local function create_input_screen() end
 local function create_help_screen() end
+local function create_about_screen() end
 
 -- ============================================================
 -- Main screen
@@ -533,6 +534,10 @@ create_main_screen = function()
         local helpBtn = c:Button{ w = lvgl.PCT(48), h = 30 }
         helpBtn:Label{ text = "Quit help", align = lvgl.ALIGN.CENTER }
         helpBtn:onClicked(function() create_help_screen() end)
+
+        local aboutBtn = c:Button{ w = lvgl.PCT(48), h = 30 }
+        aboutBtn:Label{ text = "About", align = lvgl.ALIGN.CENTER }
+        aboutBtn:onClicked(function() create_about_screen() end)
     end)
 end
 
@@ -549,6 +554,46 @@ create_help_screen = function()
                  .. "to quit back to the launcher.\n\n"
                  .. "Works in every game and emulator,\n"
                  .. "on the built-in and USB keyboards.",
+            text_font = FONT,
+            text_color = "#CCCCCC",
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+        }
+
+        local okBtn = c:Button{ w = lvgl.PCT(60), h = 30 }
+        okBtn:Label{ text = "OK", align = lvgl.ALIGN.CENTER }
+        okBtn:onClicked(function() create_main_screen() end)
+    end)
+end
+
+-- ============================================================
+-- About screen — engine license and credits.
+-- The scope container scrolls (nav.SCROLL_FIRST), so the text runs
+-- past the panel height without extra machinery.
+-- ============================================================
+create_about_screen = function()
+    show_screen(function(c)
+        heading(c, "ABOUT", ACCENT)
+
+        c:Label{
+            text = "DOOM engine\n"
+                 .. "(c) 1993-1996 id Software, Inc.\n"
+                 .. "License: GNU GPL v2\n\n"
+                 .. "Port: doomgeneric by ozkl\n"
+                 .. "github.com/ozkl/doomgeneric\n"
+                 .. "Descends from Chocolate Doom\n"
+                 .. "(c) 2005-2014 Simon Howard\n\n"
+                 .. "Music and sound effects:\n"
+                 .. "Chocolate Doom OPL/MIDI stack\n"
+                 .. "  (c) 2005-2014 Simon Howard\n"
+                 .. "DOSBox dbopl OPL emulator\n"
+                 .. "  (c) 2002-2010 The DOSBox Team\n"
+                 .. "MUS to MIDI conversion\n"
+                 .. "  (c) 2006 Ben Ryves\n\n"
+                 .. "DOOM is a trademark of id Software.\n"
+                 .. "No WAD game data is included -\n"
+                 .. "supply your own. Freedoom is a\n"
+                 .. "freely licensed IWAD if you don't\n"
+                 .. "own a copy of DOOM.",
             text_font = FONT,
             text_color = "#CCCCCC",
             w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
