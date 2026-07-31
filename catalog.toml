@@ -284,12 +284,15 @@ files = ["main.lua"]
 id = "Device"
 name = "Device"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.1.0"
 type = "lua"
 description = "Device settings"
 locked = true
 category = "Settings"
 files = ["main.lua"]
+# 1.1.0 adds the "Legacy keyboard" toggle — needs the _kb_legacy_get/_set
+# bindings (firmware API level 7).
+min_fw = 7
 
 [[apps]]
 id = "Emoji"
