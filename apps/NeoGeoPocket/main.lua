@@ -2,6 +2,7 @@ local lvgl = require("lvgl")
 local apps = require("lib/apps")
 local nav = require("lib/nav")
 local fileman = require("lib/fileman")
+local keybind = require("lib/keybind")
 
 local app_dir = ...
 
@@ -102,77 +103,22 @@ local NGP = {
     OPTION = 0x0D,  -- Enter
 }
 
--- Physical key names -> hex codes for the keymap string.
-local KEYS = {
-    a=0x61, b=0x62, c=0x63, d=0x64, e=0x65, f=0x66, g=0x67, h=0x68,
-    i=0x69, j=0x6A, k=0x6B, l=0x6C, m=0x6D, n=0x6E, o=0x6F, p=0x70,
-    q=0x71, r=0x72, s=0x73, t=0x74, u=0x75, v=0x76, w=0x77, x=0x78,
-    z=0x7A,
-    Space  = 0x20,
-    Enter  = 0x0D,
-    BkSpc  = 0x08,
-    Shift  = 0x80,
-    TrkUp  = 0x81,
-    TrkDn  = 0x82,
-    TrkLt  = 0x83,
-    TrkRt  = 0x84,
-    TrkClk = 0x85,
-}
-
-local KEY_NAMES = {}
-for name, code in pairs(KEYS) do KEY_NAMES[code] = name end
-
--- Action definitions: {id, label, target code, default key1, default key2}
+-- What this launcher wants bound. lib/keybind owns the key table, the Controls
+-- and picker screens, storage and the -keymap/-trkball strings, and appends the
+-- standard Quit action itself. Defaults name keys rather than repeating codes.
 local ACTIONS = {
-    { id="up",     label="Up",     ngp=NGP.UP,     key1=KEYS.w,     key2=KEYS.TrkUp  },
-    { id="down",   label="Down",   ngp=NGP.DOWN,   key1=KEYS.s,     key2=KEYS.TrkDn  },
-    { id="left",   label="Left",   ngp=NGP.LEFT,   key1=KEYS.a,     key2=KEYS.TrkLt  },
-    { id="right",  label="Right",  ngp=NGP.RIGHT,  key1=KEYS.d,     key2=KEYS.TrkRt  },
-    { id="btn_a",  label="A btn",  ngp=NGP.A,      key1=KEYS.m,     key2=KEYS.TrkClk },
-    { id="btn_b",  label="B btn",  ngp=NGP.B,      key1=KEYS.n,     key2=nil         },
-    { id="option", label="Option", ngp=NGP.OPTION, key1=KEYS.Enter, key2=nil         },
+    { id="up",     label="Up",     out=NGP.UP,     key1="w",     key2="TrkUp"  },
+    { id="down",   label="Down",   out=NGP.DOWN,   key1="s",     key2="TrkDn"  },
+    { id="left",   label="Left",   out=NGP.LEFT,   key1="a",     key2="TrkLt"  },
+    { id="right",  label="Right",  out=NGP.RIGHT,  key1="d",     key2="TrkRt"  },
+    { id="btn_a",  label="A btn",  out=NGP.A,      key1="m",     key2="TrkClk" },
+    { id="btn_b",  label="B btn",  out=NGP.B,      key1="n"                    },
+    { id="option", label="Option", out=NGP.OPTION, key1="Enter"                },
 }
 
-local bindings = {}  -- bindings[action_id] = {ngp=N, key1=N|nil, key2=N|nil}
-
-local function load_defaults()
-    bindings = {}
-    for _, a in ipairs(ACTIONS) do
-        bindings[a.id] = { ngp = a.ngp, key1 = a.key1, key2 = a.key2 }
-    end
-end
-
--- Build the -keymap hex string from current bindings
-local function build_keymap_string()
-    local parts = {}
-    for _, a in ipairs(ACTIONS) do
-        local b = bindings[a.id]
-        if b and (b.key1 or b.key2) then
-            local s = string.format("%02X=", b.ngp)
-            if b.key1 then
-                s = s .. string.format("%02X", b.key1)
-                if b.key2 then
-                    s = s .. string.format("+%02X", b.key2)
-                end
-            elseif b.key2 then
-                s = s .. string.format("%02X", b.key2)
-            end
-            parts[#parts + 1] = s
-        end
-    end
-    return table.concat(parts, ",")
-end
-
--- Trackball momentum settings (host-side model, same values as GameBoy)
-local trk_momentum = true
-local trk_impulse  = 15       -- impulse * 10 (1.5 -> 15)
-local trk_friction = 82       -- friction * 100 (0.82 -> 82)
-local trk_thresh   = 4        -- threshold * 10 (0.4 -> 4)
-
-local function build_trkball_string()
-    return string.format("%d,%d,%d,%d",
-        trk_momentum and 1 or 0, trk_impulse, trk_friction, trk_thresh)
-end
+-- Built once the screen helpers below exist; save_config/load_config reach it
+-- as an upvalue.
+local kb
 
 -- ============================================================
 -- Config persistence
@@ -180,16 +126,7 @@ end
 local function save_config()
     local f = io.open(CFG_PATH, "w")
     if not f then return end
-    for _, a in ipairs(ACTIONS) do
-        local b = bindings[a.id]
-        local k1 = b.key1 and string.format("%02X", b.key1) or "--"
-        local k2 = b.key2 and string.format("%02X", b.key2) or "--"
-        f:write(a.id .. "=" .. k1 .. "," .. k2 .. "\n")
-    end
-    f:write(string.format("trk_momentum=%d\n", trk_momentum and 1 or 0))
-    f:write(string.format("trk_impulse=%d\n", trk_impulse))
-    f:write(string.format("trk_friction=%d\n", trk_friction))
-    f:write(string.format("trk_thresh=%d\n", trk_thresh))
+    kb:save_lines(f)
     f:write("vcap=" .. (vcap_smooth and "35" or "25") .. "\n")
     f:write("sound=" .. (sound_on and "1" or "0") .. "\n")
     if #found_roms > 0 then
@@ -199,24 +136,16 @@ local function save_config()
 end
 
 local function load_config()
-    load_defaults()
+    kb:reset_defaults()
     local f = io.open(CFG_PATH, "r")
     if not f then return end
     local text = f:read("*a")
     f:close()
     if not text then return end
     for line in text:gmatch("[^\r\n]+") do
-        local id, k1s, k2s = line:match("^([%w_]+)=(%S+),(%S+)$")
-        if id and bindings[id] then
-            bindings[id].key1 = (k1s ~= "--") and tonumber(k1s, 16) or nil
-            bindings[id].key2 = (k2s ~= "--") and tonumber(k2s, 16) or nil
-        end
-        local val = line:match("^trk_momentum=([01])$")
-        if val then trk_momentum = (val == "1") end
-        local trk_key, trk_val = line:match("^(trk_%a+)=(%d+)$")
-        if trk_key == "trk_impulse" then trk_impulse = tonumber(trk_val) end
-        if trk_key == "trk_friction" then trk_friction = tonumber(trk_val) end
-        if trk_key == "trk_thresh" then trk_thresh = tonumber(trk_val) end
+        -- Binding and trk_* lines are the library's; the patterns below are
+        -- disjoint from them, so an unconsumed line just falls through.
+        kb:load_line(line)
         local vc = line:match("^vcap=(%d+)$")
         if vc then vcap_smooth = (vc ~= "25") end
         local snd = line:match("^sound=([01])$")
@@ -225,17 +154,6 @@ local function load_config()
         if rname then selected_rom_name = rname end
     end
 end
-
-local function key_display(code)
-    if not code then return "---" end
-    return KEY_NAMES[code] or string.format("0x%02X", code)
-end
-
-local BINDABLE_KEYS = {}
-for name, code in pairs(KEYS) do
-    BINDABLE_KEYS[#BINDABLE_KEYS + 1] = { name = name, code = code }
-end
-table.sort(BINDABLE_KEYS, function(a, b) return a.name < b.name end)
 
 -- ============================================================
 -- Screen management — single navigable scope per view, focusables as direct
@@ -272,32 +190,24 @@ end
 local create_main_screen
 local create_help_screen
 local create_settings_screen
-local create_controls_screen
-local create_bind_screen
-local create_input_screen
 local create_about_screen
 
--- A label + value button pair; the value button cycles and persists.
-local function setting_row(parent, label, get_text, on_click)
-    parent:Label{
-        text = label,
-        text_font = FONT,
-        text_color = "#CCCCCC",
-        w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
-    }
-    local valBtn = parent:Button{ w = lvgl.PCT(100), h = 28 }
-    local valLbl = valBtn:Label{
-        text = get_text(),
-        text_font = FONT,
-        align = lvgl.ALIGN.CENTER,
-    }
-    valBtn:onClicked(function()
-        on_click()
-        valLbl:set{ text = get_text() }
-        save_config()
-    end)
-    return valBtn
-end
+-- Label + cycling value button, persisted (see lib/keybind).
+local setting_row = keybind.rows{ font = FONT, on_save = save_config }
+
+-- Controls, the key picker and the trackball Input screen all live in
+-- lib/keybind. It renders through this app's show_screen, so the view stack,
+-- nav flags and theme are unchanged; only the duplicated code is gone.
+kb = keybind.new{
+    actions     = ACTIONS,
+    root        = root,
+    show_screen = show_screen,
+    font        = FONT,
+    accent      = ACCENT,
+    on_back     = function() create_main_screen() end,
+    on_save     = save_config,
+    trackball   = { momentum = true, impulse = 15, friction = 82, thresh = 4 },
+}
 
 -- ============================================================
 -- Main screen
@@ -354,8 +264,8 @@ create_main_screen = function()
                 return
             end
             status:set{ text = "Loading..." }
-            local km = build_keymap_string()
-            local ts = build_trkball_string()
+            local km = kb:keymap_string()
+            local ts = kb:trkball_string()
             lvgl.Timer{
                 period = 50,
                 cb = function(t)
@@ -365,19 +275,25 @@ create_main_screen = function()
                     -- module, then recreates Lua and returns to the launcher.
                     -- -stackkb 24: RACE runs shallow; the smaller rung fits
                     -- when internal RAM has no free 32KB block.
-                    _launch_elf(ELF_PATH, to_vfs_path(r.path),
+                    local args = { ELF_PATH, to_vfs_path(r.path),
                         "-stackkb", "24",
-                        "-keymap", km,
                         "-trkball", ts,
                         "-vcap", vcap_smooth and "35" or "25",
-                        "-soundoff", sound_on and "0" or "1")
+                        "-soundoff", sound_on and "0" or "1" }
+                    -- Omitted when nothing is bound, so the firmware falls back
+                    -- to passthrough instead of parsing an empty table.
+                    if km then
+                        args[#args + 1] = "-keymap"
+                        args[#args + 1] = km
+                    end
+                    _launch_elf(table.unpack(args))
                 end
             }
         end)
 
         local ctrlBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
         ctrlBtn:Label{ text = "Controls", align = lvgl.ALIGN.CENTER }
-        ctrlBtn:onClicked(function() create_controls_screen() end)
+        ctrlBtn:onClicked(function() kb:open() end)
 
         local setBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
         setBtn:Label{ text = "Settings", align = lvgl.ALIGN.CENTER }
@@ -434,158 +350,6 @@ create_settings_screen = function()
 end
 
 -- ============================================================
--- Controls overview screen
--- ============================================================
-create_controls_screen = function()
-    show_screen(function(c)
-        heading(c, "CONTROLS")
-
-        for idx, a in ipairs(ACTIONS) do
-            local b = bindings[a.id]
-
-            c:Label{
-                text = a.label,
-                text_font = FONT,
-                text_color = "#CCCCCC",
-                w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
-            }
-
-            local k1btn = c:Button{ w = lvgl.PCT(48), h = 26 }
-            k1btn:Label{
-                text = key_display(b.key1),
-                text_font = FONT,
-                align = lvgl.ALIGN.CENTER,
-            }
-            k1btn:onClicked(function() create_bind_screen(idx, 1) end)
-
-            local k2btn = c:Button{ w = lvgl.PCT(48), h = 26 }
-            k2btn:Label{
-                text = key_display(b.key2),
-                text_font = FONT,
-                align = lvgl.ALIGN.CENTER,
-            }
-            k2btn:onClicked(function() create_bind_screen(idx, 2) end)
-        end
-
-        local defBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
-        defBtn:Label{ text = "Defaults", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        defBtn:onClicked(function()
-            load_defaults()
-            save_config()
-            create_controls_screen()
-        end)
-
-        local inputBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
-        inputBtn:Label{ text = "Input", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        inputBtn:onClicked(function() create_input_screen() end)
-
-        local backBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
-        backBtn:Label{ text = "Back", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        backBtn:onClicked(function() create_main_screen() end)
-    end)
-end
-
--- ============================================================
--- Key binding picker screen
--- ============================================================
-create_bind_screen = function(action_idx, slot)
-    local a = ACTIONS[action_idx]
-    local b = bindings[a.id]
-    show_screen(function(c)
-        local slot_name = (slot == 1) and "Primary" or "Alt"
-        heading(c, a.label .. " - " .. slot_name)
-
-        local current = (slot == 1) and b.key1 or b.key2
-
-        local clrBtn = c:Button{ w = lvgl.PCT(100), h = 24 }
-        clrBtn:Label{ text = "--- (clear)", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        clrBtn:onClicked(function()
-            if slot == 1 then b.key1 = nil else b.key2 = nil end
-            save_config()
-            create_controls_screen()
-        end)
-
-        for _, k in ipairs(BINDABLE_KEYS) do
-            local btn = c:Button{ w = lvgl.PCT(48), h = 24 }
-            local lbl = k.name
-            if k.code == current then lbl = "> " .. lbl .. " <" end
-            btn:Label{ text = lbl, text_font = FONT, align = lvgl.ALIGN.CENTER }
-            btn:onClicked(function()
-                if slot == 1 then b.key1 = k.code else b.key2 = k.code end
-                save_config()
-                create_controls_screen()
-            end)
-        end
-
-        local cancelBtn = c:Button{ w = lvgl.PCT(100), h = 26 }
-        cancelBtn:Label{ text = "Cancel", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        cancelBtn:onClicked(function() create_controls_screen() end)
-    end)
-end
-
--- ============================================================
--- Input settings screen (trackball momentum tuning)
--- ============================================================
-create_input_screen = function()
-    show_screen(function(c)
-        heading(c, "INPUT SETTINGS")
-
-        setting_row(c, "Momentum",
-            function() return trk_momentum and "< ON >" or "< OFF >" end,
-            function() trk_momentum = not trk_momentum end
-        )
-
-        setting_row(c, "Sensitivity",
-            function() return string.format("< %.1f >", trk_impulse / 10) end,
-            function()
-                trk_impulse = trk_impulse + 1
-                if trk_impulse > 30 then trk_impulse = 5 end
-            end
-        )
-
-        setting_row(c, "Friction",
-            function() return string.format("< %.2f >", trk_friction / 100) end,
-            function()
-                trk_friction = trk_friction + 2
-                if trk_friction > 95 then trk_friction = 50 end
-            end
-        )
-
-        setting_row(c, "Dead Zone",
-            function() return string.format("< %.1f >", trk_thresh / 10) end,
-            function()
-                trk_thresh = trk_thresh + 1
-                if trk_thresh > 10 then trk_thresh = 2 end
-            end
-        )
-
-        c:Label{
-            text = "Sensitivity: impulse per tick\n"
-                 .. "Friction: decay rate (lower=faster stop)\n"
-                 .. "Dead Zone: min velocity to register",
-            text_font = FONT,
-            text_color = "#666666",
-            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
-        }
-
-        local resetBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
-        resetBtn:Label{ text = "Reset", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        resetBtn:onClicked(function()
-            trk_momentum = true
-            trk_impulse = 15
-            trk_friction = 82
-            trk_thresh = 4
-            save_config()
-            create_input_screen()
-        end)
-
-        local backBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
-        backBtn:Label{ text = "Back", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        backBtn:onClicked(function() create_controls_screen() end)
-    end)
-end
-
--- ============================================================
 -- Quit help screen (firmware-wide Alt+Backspace exit chord)
 -- ============================================================
 create_help_screen = function()
@@ -596,8 +360,11 @@ create_help_screen = function()
             text = "While the game is running, hold\n"
                  .. "ALT + Backspace for about 1.5 seconds\n"
                  .. "to quit back to the launcher.\n\n"
-                 .. "Works in every game and emulator,\n"
-                 .. "on the built-in and USB keyboards.",
+                 .. "Or tap the Quit key - Y by default,\n"
+                 .. "rebindable under Controls. That is the\n"
+                 .. "only exit on a device in legacy\n"
+                 .. "keyboard mode, where holds and key\n"
+                 .. "combos do not register.",
             text_font = FONT,
             text_color = "#CCCCCC",
             w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
@@ -655,7 +422,7 @@ end
 -- ============================================================
 -- Startup: phased directory scanning, then UI
 -- ============================================================
-load_defaults()
+-- keybind.new already seeded the defaults; load_config re-seeds then parses.
 local init_phase = 0
 return function()
     init_phase = init_phase + 1

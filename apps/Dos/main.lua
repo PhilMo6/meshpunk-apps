@@ -3,6 +3,7 @@ local apps = require("lib/apps")
 local nav = require("lib/nav")
 local fileman = require("lib/fileman")
 local downloader = require("lib/downloader")   -- WiFi wait; see Download DOS
+local keybind = require("lib/keybind")
 
 local app_dir = ...
 
@@ -140,98 +141,39 @@ local PC = {
     RMOUSE = 0x95,
 }
 
-local KEYS = {
-    a=0x61, b=0x62, c=0x63, d=0x64, e=0x65, f=0x66, g=0x67, h=0x68,
-    i=0x69, j=0x6A, k=0x6B, l=0x6C, m=0x6D, n=0x6E, o=0x6F, p=0x70,
-    q=0x71, r=0x72, s=0x73, t=0x74, u=0x75, v=0x76, w=0x77, x=0x78,
-    z=0x7A,
-    Space  = 0x20,
-    Enter  = 0x0D,
-    BkSpc  = 0x08,
-    Shift  = 0x80,
-    TrkUp  = 0x81,
-    TrkDn  = 0x82,
-    TrkLt  = 0x83,
-    TrkRt  = 0x84,
-    TrkClk = 0x85,
-}
-
-local KEY_NAMES = {}
-for name, code in pairs(KEYS) do KEY_NAMES[code] = name end
-
--- DOS needs keys the T-Deck doesn't have. All unbound by default — binding a
+-- DOS needs keys the T-Deck doesn't have. Mostly unbound by default — binding a
 -- physical key STEALS it from typing, so users bind only what a game needs.
+-- WASD -> arrows is the exception: the arrows are what DOS games want most and
+-- what the T-Deck lacks entirely, and it costs nothing while the binding layer
+-- starts OFF (ALT+Enter turns it on). lib/keybind owns the key table, the
+-- binding screens, storage and the -keymap/-trkball strings, and appends the
+-- standard Quit action itself.
 local ACTIONS = {
-    { id="esc",    label="Esc",    pc=PC.ESC    },
-    { id="up",     label="Up",     pc=PC.UP     },
-    { id="down",   label="Down",   pc=PC.DOWN   },
-    { id="left",   label="Left",   pc=PC.LEFT   },
-    { id="right",  label="Right",  pc=PC.RIGHT  },
-    { id="ctrl",   label="Ctrl",   pc=PC.CTRL   },
-    { id="alt",    label="Alt",    pc=PC.ALT    },
-    { id="tab",    label="Tab",    pc=PC.TAB    },
-    { id="del",    label="Del",    pc=PC.DEL    },
-    { id="f1",     label="F1",     pc=PC.F1     },
-    { id="f2",     label="F2",     pc=PC.F2     },
-    { id="f3",     label="F3",     pc=PC.F3     },
-    { id="f4",     label="F4",     pc=PC.F4     },
-    { id="f5",     label="F5",     pc=PC.F5     },
-    { id="f6",     label="F6",     pc=PC.F6     },
-    { id="f7",     label="F7",     pc=PC.F7     },
-    { id="f8",     label="F8",     pc=PC.F8     },
-    { id="f9",     label="F9",     pc=PC.F9     },
-    { id="f10",    label="F10",    pc=PC.F10    },
-    { id="rmouse", label="R.Mouse", pc=PC.RMOUSE },
+    { id="esc",    label="Esc",     out=PC.ESC    },
+    { id="up",     label="Up",      out=PC.UP,    key1="w" },
+    { id="down",   label="Down",    out=PC.DOWN,  key1="s" },
+    { id="left",   label="Left",    out=PC.LEFT,  key1="a" },
+    { id="right",  label="Right",   out=PC.RIGHT, key1="d" },
+    { id="ctrl",   label="Ctrl",    out=PC.CTRL   },
+    { id="alt",    label="Alt",     out=PC.ALT    },
+    { id="tab",    label="Tab",     out=PC.TAB    },
+    { id="del",    label="Del",     out=PC.DEL    },
+    { id="f1",     label="F1",      out=PC.F1     },
+    { id="f2",     label="F2",      out=PC.F2     },
+    { id="f3",     label="F3",      out=PC.F3     },
+    { id="f4",     label="F4",      out=PC.F4     },
+    { id="f5",     label="F5",      out=PC.F5     },
+    { id="f6",     label="F6",      out=PC.F6     },
+    { id="f7",     label="F7",      out=PC.F7     },
+    { id="f8",     label="F8",      out=PC.F8     },
+    { id="f9",     label="F9",      out=PC.F9     },
+    { id="f10",    label="F10",     out=PC.F10    },
+    { id="rmouse", label="R.Mouse", out=PC.RMOUSE },
 }
 
-local bindings = {}
-
--- WASD -> arrows out of the box: the arrows are what DOS games want most and
--- what the T-Deck lacks entirely, and binding costs nothing while the binding
--- layer starts OFF (ALT+Enter turns it on). Everything else stays unbound --
--- a binding steals its key from typing, so users opt into the rest.
-local DEFAULT_BINDS = { up = KEYS.w, left = KEYS.a, down = KEYS.s, right = KEYS.d }
-
-local function load_defaults()
-    bindings = {}
-    for _, a in ipairs(ACTIONS) do
-        bindings[a.id] = { pc = a.pc, key1 = DEFAULT_BINDS[a.id], key2 = nil }
-    end
-end
-
--- Build the -keymap hex string. Returns nil when nothing is bound (then we
--- omit -keymap entirely = full passthrough). The firmware keymap is a pure
--- remapper (unmapped codes pass through unchanged), so only the actual
--- bindings are emitted — no identity entries needed.
-local function build_keymap_string()
-    local parts = {}
-    for _, a in ipairs(ACTIONS) do
-        local b = bindings[a.id]
-        if b and (b.key1 or b.key2) then
-            local s = string.format("%02X=", b.pc)
-            if b.key1 then
-                s = s .. string.format("%02X", b.key1)
-                if b.key2 then s = s .. string.format("+%02X", b.key2) end
-            else
-                s = s .. string.format("%02X", b.key2)
-            end
-            parts[#parts + 1] = s
-        end
-    end
-    if #parts == 0 then return nil end
-    return table.concat(parts, ",")
-end
-
--- Trackball momentum settings (used in arrow-keys mode, i.e. mouse off)
-local trk_momentum = true
-local trk_impulse  = 15
-local trk_friction = 82
-local trk_thresh   = 4
-
-local function build_trkball_string()
-    return string.format("%d,%d,%d,%d",
-        trk_momentum and 1 or 0, trk_impulse, trk_friction, trk_thresh)
-end
+-- Built once the screen helpers below exist; save_config/load_config reach it
+-- as an upvalue.
+local kb
 
 -- ============================================================
 -- Emulator settings
@@ -311,16 +253,7 @@ local click_latch = false
 local function save_config()
     local f = io.open(CFG_PATH, "w")
     if not f then return end
-    for _, a in ipairs(ACTIONS) do
-        local b = bindings[a.id]
-        local k1 = b.key1 and string.format("%02X", b.key1) or "--"
-        local k2 = b.key2 and string.format("%02X", b.key2) or "--"
-        f:write(a.id .. "=" .. k1 .. "," .. k2 .. "\n")
-    end
-    f:write(string.format("trk_momentum=%d\n", trk_momentum and 1 or 0))
-    f:write(string.format("trk_impulse=%d\n", trk_impulse))
-    f:write(string.format("trk_friction=%d\n", trk_friction))
-    f:write(string.format("trk_thresh=%d\n", trk_thresh))
+    kb:save_lines(f)
     f:write(string.format("cpu=%d\n", sel_cpu))
     f:write(string.format("smooth=%d\n", text_smooth and 1 or 0))
     f:write(string.format("rgate=%d\n", render_gate and 1 or 0))
@@ -344,24 +277,16 @@ local function save_config()
 end
 
 local function load_config()
-    load_defaults()
+    kb:reset_defaults()
     local f = io.open(CFG_PATH, "r")
     if not f then return false end
     local text = f:read("*a")
     f:close()
     if not text then return false end
     for line in text:gmatch("[^\r\n]+") do
-        local id, k1s, k2s = line:match("^([%w_]+)=(%S+),(%S+)$")
-        if id and bindings[id] then
-            bindings[id].key1 = (k1s ~= "--") and tonumber(k1s, 16) or nil
-            bindings[id].key2 = (k2s ~= "--") and tonumber(k2s, 16) or nil
-        end
-        local val = line:match("^trk_momentum=([01])$")
-        if val then trk_momentum = (val == "1") end
-        local trk_key, trk_val = line:match("^(trk_%a+)=(%d+)$")
-        if trk_key == "trk_impulse" then trk_impulse = tonumber(trk_val) end
-        if trk_key == "trk_friction" then trk_friction = tonumber(trk_val) end
-        if trk_key == "trk_thresh" then trk_thresh = tonumber(trk_val) end
+        -- Binding and trk_* lines are the library's; the patterns below are
+        -- disjoint from them, so an unconsumed line just falls through.
+        kb:load_line(line)
         local v = line:match("^cpu=(%d+)$")
         if v then
             v = tonumber(v)
@@ -397,17 +322,6 @@ local function load_config()
     end
     return true
 end
-
-local function key_display(code)
-    if not code then return "---" end
-    return KEY_NAMES[code] or string.format("0x%02X", code)
-end
-
-local BINDABLE_KEYS = {}
-for name, code in pairs(KEYS) do
-    BINDABLE_KEYS[#BINDABLE_KEYS + 1] = { name = name, code = code }
-end
-table.sort(BINDABLE_KEYS, function(a, b) return a.name < b.name end)
 
 -- ============================================================
 -- Screen management
@@ -648,15 +562,34 @@ end
 
 local function create_main_screen() end
 local function create_controls_screen() end
-local function create_bind_screen(action_idx, slot) end
-local function create_binds_screen() end
 local function create_confirm_screen(hda_choice, on_yes) end
 local function create_download_screen() end
 local function create_dest_screen(disk) end
-local function create_input_screen() end
 local function create_settings_screen() end
 local function create_help_screen() end
 local function create_about_screen() end
+
+-- The binding list, key picker and trackball Input screen all live in
+-- lib/keybind. It renders through this app's show_screen, so the view stack,
+-- nav flags and theme are unchanged; only the duplicated code is gone. Back
+-- returns to the Controls doc screen, which is the only way in.
+kb = keybind.new{
+    actions     = ACTIONS,
+    root        = root,
+    show_screen = show_screen,
+    font        = FONT,
+    accent      = ACCENT,
+    title       = "KEY BINDINGS",
+    note        = "Bind T-Deck keys to PC keys a game\n"
+               .. "needs. A bound key replaces its normal\n"
+               .. "typing. Primary / Alt are two\n"
+               .. "alternative keys for the same action.",
+    on_back     = function() create_controls_screen() end,
+    on_save     = save_config,
+    trackball   = { momentum = true, impulse = 15, friction = 82, thresh = 4 },
+    input_note  = "These apply in Arrow-keys trackball mode\n"
+               .. "(Settings -> Trackball -> Arrow keys).",
+}
 
 -- ============================================================
 -- Main screen
@@ -823,7 +756,7 @@ create_main_screen = function()
                     -- need to type. Toggle on once the game is running.
                     args[#args + 1] = "-kbtoggle"
                     args[#args + 1] = "0"
-                    local km = build_keymap_string()
+                    local km = kb:keymap_string()
                     if km then
                         args[#args + 1] = "-keymap"
                         args[#args + 1] = km
@@ -839,7 +772,7 @@ create_main_screen = function()
                     else
                         -- Arrow-keys mode: trackball momentum drives 0x81-0x84
                         args[#args + 1] = "-trkball"
-                        args[#args + 1] = build_trkball_string()
+                        args[#args + 1] = kb:trkball_string()
                     end
                     _launch_elf(table.unpack(args))
                 end
@@ -884,7 +817,12 @@ create_help_screen = function()
                  .. "Backspace on its own stays a normal\n"
                  .. "DOS key. Works in every game and\n"
                  .. "emulator, on the built-in and USB\n"
-                 .. "keyboards.",
+                 .. "keyboards.\n\n"
+                 .. "Or tap the Quit key - Y by default,\n"
+                 .. "set under Controls > Bindings. It only\n"
+                 .. "fires while bindings are ON, so it\n"
+                 .. "still types at the DOS prompt. That is\n"
+                 .. "the only exit in legacy keyboard mode.",
             text_font = FONT,
             text_color = "#CCCCCC",
             w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
@@ -1039,7 +977,7 @@ create_settings_screen = function()
 
         local trkBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
         trkBtn:Label{ text = "Trackball", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        trkBtn:onClicked(function() create_input_screen() end)
+        trkBtn:onClicked(function() kb:input_screen() end)
 
         local backBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
         backBtn:Label{ text = "Back", text_font = FONT, align = lvgl.ALIGN.CENTER }
@@ -1094,16 +1032,19 @@ create_controls_screen = function()
         head("Key bindings on/off  (ALT + Enter)")
         body("DOS starts in TYPING mode so the prompt\nworks normally. ALT + Enter switches your\nbindings on for the game and off again\nwhenever you need to type.\nThe trackball is unaffected either way, so\nmouse + bound arrows work together.")
 
+        head("Bindings on/off, legacy keyboard")
+        body("On a device in legacy keyboard mode ALT +\nEnter cannot register. Press P, Backspace,\nEnter instead - as the last three keys, in\nthat order. The backlight blinks on the\nswitch. No time limit.")
+
         head("Quit to launcher")
-        body("Hold ALT + Backspace about 1.5 seconds.\nBackspace alone stays a normal DOS key.")
+        body("Hold ALT + Backspace about 1.5 seconds.\nBackspace alone stays a normal DOS key.\nOr tap the Quit key - Y by default, under\nBindings - which works only while bindings\nare ON, so it still types at the prompt.\nThat is the only exit in legacy keyboard\nmode, where holds do not register.")
 
         local bindBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
         bindBtn:Label{ text = "Bindings", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        bindBtn:onClicked(function() create_binds_screen() end)
+        bindBtn:onClicked(function() kb:open() end)
 
         local trkBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
         trkBtn:Label{ text = "Trackball", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        trkBtn:onClicked(function() create_input_screen() end)
+        trkBtn:onClicked(function() kb:input_screen() end)
 
         local backBtn = c:Button{ w = lvgl.PCT(100), h = 28 }
         backBtn:Label{ text = "Back", text_font = FONT, align = lvgl.ALIGN.CENTER }
@@ -1366,7 +1307,7 @@ create_confirm_screen = function(hda_choice, on_yes)
         end
         local nbind = 0
         for _, a in ipairs(ACTIONS) do
-            local b = bindings[a.id]
+            local b = kb:get(a.id)
             if b and (b.key1 or b.key2) then nbind = nbind + 1 end
         end
         row("Key bindings", (nbind == 0) and "none"
@@ -1381,159 +1322,9 @@ create_confirm_screen = function(hda_choice, on_yes)
 end
 
 -- ============================================================
--- Key binding list screen -- one row per action, two key slots.
--- The only entry into create_bind_screen; a key assigned here STEALS the
--- key from typing (the -keymap remap replaces its output).
--- ============================================================
-create_binds_screen = function()
-    show_screen(function(c)
-        heading(c, "KEY BINDINGS", ACCENT)
-
-        c:Label{
-            text = "Bind T-Deck keys to PC keys a game\n"
-                 .. "needs. A bound key replaces its normal\n"
-                 .. "typing. Primary / Alt are two\n"
-                 .. "alternative keys for the same action.",
-            text_font = FONT,
-            text_color = "#CCCCCC",
-            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
-        }
-
-        for i, a in ipairs(ACTIONS) do
-            local b = bindings[a.id]
-            c:Label{
-                text = a.label,
-                text_font = FONT,
-                text_color = "#CCCCCC",
-                w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
-            }
-            local b1 = c:Button{ w = lvgl.PCT(48), h = 24 }
-            b1:Label{ text = key_display(b.key1), text_font = FONT,
-                      align = lvgl.ALIGN.CENTER }
-            b1:onClicked(function() create_bind_screen(i, 1) end)
-            local b2 = c:Button{ w = lvgl.PCT(48), h = 24 }
-            b2:Label{ text = key_display(b.key2), text_font = FONT,
-                      align = lvgl.ALIGN.CENTER }
-            b2:onClicked(function() create_bind_screen(i, 2) end)
-        end
-
-        local backBtn = c:Button{ w = lvgl.PCT(100), h = 26 }
-        backBtn:Label{ text = "Back", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        backBtn:onClicked(function() create_controls_screen() end)
-    end)
-end
-
--- ============================================================
--- Key binding picker screen
--- ============================================================
-create_bind_screen = function(action_idx, slot)
-    local a = ACTIONS[action_idx]
-    local b = bindings[a.id]
-    show_screen(function(c)
-        local slot_name = (slot == 1) and "Primary" or "Alt"
-        heading(c, a.label .. " - " .. slot_name, ACCENT)
-
-        local current = (slot == 1) and b.key1 or b.key2
-
-        local clrBtn = c:Button{ w = lvgl.PCT(100), h = 24 }
-        clrBtn:Label{ text = "--- (clear)", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        clrBtn:onClicked(function()
-            if slot == 1 then b.key1 = nil else b.key2 = nil end
-            save_config()
-            create_binds_screen()
-        end)
-
-        for _, k in ipairs(BINDABLE_KEYS) do
-            local btn = c:Button{ w = lvgl.PCT(48), h = 24 }
-            local lbl = k.name
-            if k.code == current then lbl = "> " .. lbl .. " <" end
-            btn:Label{ text = lbl, text_font = FONT, align = lvgl.ALIGN.CENTER }
-            btn:onClicked(function()
-                -- The firmware keymap holds ONE output per physical key, so a
-                -- key bound in two places silently loses one of them. Strip
-                -- the key from every other slot before assigning it here.
-                for _, o in ipairs(ACTIONS) do
-                    local ob = bindings[o.id]
-                    if ob.key1 == k.code then ob.key1 = nil end
-                    if ob.key2 == k.code then ob.key2 = nil end
-                end
-                if slot == 1 then b.key1 = k.code else b.key2 = k.code end
-                save_config()
-                create_binds_screen()
-            end)
-        end
-
-        local cancelBtn = c:Button{ w = lvgl.PCT(100), h = 26 }
-        cancelBtn:Label{ text = "Cancel", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        cancelBtn:onClicked(function() create_binds_screen() end)
-    end)
-end
-
--- ============================================================
--- Input settings screen (trackball tuning for arrow-keys mode)
--- ============================================================
-create_input_screen = function()
-    show_screen(function(c)
-        heading(c, "INPUT SETTINGS", ACCENT)
-
-        setting_row(c, "Momentum",
-            function() return trk_momentum and "< ON >" or "< OFF >" end,
-            function() trk_momentum = not trk_momentum end
-        )
-
-        setting_row(c, "Sensitivity",
-            function() return string.format("< %.1f >", trk_impulse / 10) end,
-            function()
-                trk_impulse = trk_impulse + 1
-                if trk_impulse > 30 then trk_impulse = 5 end
-            end
-        )
-
-        setting_row(c, "Friction",
-            function() return string.format("< %.2f >", trk_friction / 100) end,
-            function()
-                trk_friction = trk_friction + 2
-                if trk_friction > 95 then trk_friction = 50 end
-            end
-        )
-
-        setting_row(c, "Dead Zone",
-            function() return string.format("< %.1f >", trk_thresh / 10) end,
-            function()
-                trk_thresh = trk_thresh + 1
-                if trk_thresh > 10 then trk_thresh = 2 end
-            end
-        )
-
-        c:Label{
-            text = "These apply in Arrow-keys trackball mode\n"
-                 .. "(Settings -> Trackball -> Arrow keys).",
-            text_font = FONT,
-            text_color = "#666666",
-            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
-        }
-
-        local resetBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
-        resetBtn:Label{ text = "Reset", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        resetBtn:onClicked(function()
-            trk_momentum = true
-            trk_impulse = 15
-            trk_friction = 82
-            trk_thresh = 4
-            save_config()
-            create_input_screen()
-        end)
-
-        local backBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
-        backBtn:Label{ text = "Back", text_font = FONT, align = lvgl.ALIGN.CENTER }
-        backBtn:onClicked(function() create_controls_screen() end)
-    end)
-end
-
--- ============================================================
 -- Startup
 -- ============================================================
-load_defaults()
+-- keybind.new already seeded the defaults; load_config re-seeds then parses.
 local init_phase = 0
 return function()
     init_phase = init_phase + 1
