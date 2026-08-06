@@ -277,6 +277,19 @@ description = "Quick notes"
 category = "Tools"
 files = ["main.lua"]
 
+# min_fw 8 is MANDATORY, not graceful: the app drains the C capture ring via
+# _mesh_pkt_capture/_mesh_pkt_poll, which do not exist before this level.
+[[apps]]
+id = "Packets"
+name = "Packets"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Live raw radio packet monitor with CSV capture"
+category = "Tools"
+min_fw = 8
+files = ["main.lua"]
+
 [[apps]]
 id = "USB_Host"
 name = "USB Host"
