@@ -138,6 +138,24 @@ description = "On-device Lua code editor"
 category = "Tools"
 files = ["main.lua"]
 
+# Games live in subfolders of the app (games/<name>/main.lua), so this entry
+# downloads into a nested path — keep every game's folder name URL-safe, the
+# file paths below become URL segments.
+[[apps]]
+id = "Jet_3D"
+name = "Jet 3D"
+author = "PhilMo6"
+version = "1.0.0"
+type = "elf"
+description = "Hover racer on a software 3D engine"
+category = "Games"
+min_fw = 8
+files = [
+  "main.lua",
+  "jet3d.app.elf",
+  "games/skyloop/main.lua",
+]
+
 # ── Preinstalled apps (tracked for OTA updates) ──────────────────────────────
 
 [[apps]]
