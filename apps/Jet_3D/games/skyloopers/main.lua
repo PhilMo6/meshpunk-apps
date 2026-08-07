@@ -1,4 +1,4 @@
--- SKYLOOP hover race (up to six ships, six distinct classes) on a
+-- SKYLOOPERS hover race (up to six ships, six distinct classes) on a
 -- randomly generated floating circuit. Kart rules: weapon pickups, boost
 -- pads, walled corridors and open cliff-edge sections, 3 laps,
 -- checkpoint respawns.
@@ -2167,7 +2167,7 @@ end
 local draw = {}
 
 function draw.menu()
-    drawMenu("SKYLOOP", MAIN_MENU)
+    drawMenu("SKYLOOPERS", MAIN_MENU)
     jet.text(3, 218, string.format("wins %d   losses %d   races %d",
              stats.wins, stats.losses, stats.races),
              jet.rgb(180, 200, 225))

@@ -147,13 +147,13 @@ name = "Jet 3D"
 author = "PhilMo6"
 version = "1.0.0"
 type = "elf"
-description = "Hover racer on a software 3D engine"
+description = "A software 3D engine with lua powered games"
 category = "Games"
 min_fw = 8
 files = [
   "main.lua",
   "jet3d.app.elf",
-  "games/skyloop/main.lua",
+  "games/skyloopers/main.lua",
 ]
 
 # ── Preinstalled apps (tracked for OTA updates) ──────────────────────────────
