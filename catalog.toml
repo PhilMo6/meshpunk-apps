@@ -81,6 +81,17 @@ min_fw = 8
 files = ["main.lua", "ngpc.app.elf"]
 
 [[apps]]
+id = "Sega8"
+name = "Sega8"
+author = "PhilMo6"
+version = "1.0.0"
+type = "elf"
+description = "Game Gear, Master System and SG-1000 emulator (SMS Plus)"
+category = "Games"
+min_fw = 8
+files = ["main.lua", "sega8.app.elf"]
+
+[[apps]]
 id = "PICO-8"
 name = "PICO-8"
 author = "PhilMo6"
@@ -193,7 +204,7 @@ min_fw = 5
 id = "Read_Me"
 name = "Read Me"
 author = "PhilMo6"
-version = "1.0.3"
+version = "1.0.4"
 type = "lua"
 description = "On-device user guide"
 files = ["main.lua"]
