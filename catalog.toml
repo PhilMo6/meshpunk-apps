@@ -193,12 +193,14 @@ min_fw = 5
 id = "Read_Me"
 name = "Read Me"
 author = "PhilMo6"
-version = "1.0.2"
+version = "1.0.3"
 type = "lua"
 description = "On-device user guide"
 files = ["main.lua"]
-# The guide documents features up to level 3 (USB drive mode) — don't show
-# it to firmware that lacks them.
+# Held at 3 (the USB-drive-mode level) even though the guide now also covers
+# higher-level apps such as Dos: the guide is text only, so a page about an
+# app you don't have is harmless, while a higher gate would hide the whole
+# guide from firmware that still benefits from it.
 min_fw = 3
 
 [[apps]]
