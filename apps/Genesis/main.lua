@@ -10,20 +10,23 @@ local W = lvgl.HOR_RES()
 local H = lvgl.VER_RES()
 
 -- ============================================================
--- SNES (snes9x) Launcher
+-- Sega Genesis / Mega Drive (Gwenesis) Launcher
 -- ============================================================
 
-local TITLE     = "SNES"
-local ACCENT    = "#7F00FF"
-local ELF_NAME  = "snes.app.elf"
-local ROM_HINT  = "Place .smc/.sfc ROMs in S:/snes/"
-local EXTRA_DIR = "S:/snes"
+local TITLE     = "Genesis"
+local SUBTITLE  = "Mega Drive"
+local ACCENT    = "#E63946"
+local ELF_NAME  = "genesis.app.elf"
+local ROM_HINT  = "Place .md/.gen/.bin ROMs in S:/genesis/"
+local EXTRA_DIR = "S:/genesis"
+-- .smd is the interleaved Super Magic Drive format; the core reads plain
+-- (BIN/MD) dumps, so it is deliberately not listed.
 local function is_rom(name)
-    return name:match("%.smc$") or name:match("%.sfc$") or name:match("%.fig$")
+    return name:match("%.md$") or name:match("%.gen$") or name:match("%.bin$")
 end
 
 -- Derive SD-side mirror of app directory:
--- "L:/lua/apps/Games/SNES" -> "S:/lua/apps/Games/SNES"
+-- "L:/lua/apps/Games/Genesis" -> "S:/lua/apps/Games/Genesis"
 local sd_app_dir = app_dir:gsub("^L:", "S:")
 
 -- ROM paths are converted for the ELF module's fopen; the ELF path itself is
@@ -48,53 +51,53 @@ local CFG_PATH = app_dir .. "/launcher.cfg"
 local ELF_PATH = find_file(ELF_NAME)
 
 -- ============================================================
--- Keymap / controls system (host-side translation, same as GameBoy/NGPC:
+-- Keymap / controls system (host-side translation, same as SNES/Sega8:
 -- the -keymap string maps physical keys to the codes the module reads)
 -- ============================================================
 
 -- Codes main_tdeck.c's poll_input() understands.
-local SNES = {
-    UP     = 0x77,  -- 'w'
-    DOWN   = 0x73,  -- 's'
-    LEFT   = 0x61,  -- 'a'
-    RIGHT  = 0x64,  -- 'd'
-    A      = 0x6D,  -- 'm'
-    B      = 0x6E,  -- 'n'
-    X      = 0x6B,  -- 'k'
-    Y      = 0x6A,  -- 'j'
-    L      = 0x71,  -- 'q'
-    R      = 0x70,  -- 'p'
-    START  = 0x0D,  -- Enter
-    SELECT = 0x20,  -- Space
+local GEN = {
+    UP    = 0x77,  -- 'w'
+    DOWN  = 0x73,  -- 's'
+    LEFT  = 0x61,  -- 'a'
+    RIGHT = 0x64,  -- 'd'
+    A     = 0x6E,  -- 'n'
+    B     = 0x6D,  -- 'm'
+    C     = 0x6B,  -- 'k'
+    START = 0x0D,  -- Enter
 }
 
 -- What this launcher wants bound. lib/keybind owns the key table, the Controls
 -- and picker screens, storage and the -keymap/-trkball strings, and appends the
 -- standard Quit action itself. Defaults name keys rather than repeating codes.
 local ACTIONS = {
-    { id="up",     label="Up",     out=SNES.UP,     key1="w",     key2="TrkUp"  },
-    { id="down",   label="Down",   out=SNES.DOWN,   key1="s",     key2="TrkDn"  },
-    { id="left",   label="Left",   out=SNES.LEFT,   key1="a",     key2="TrkLt"  },
-    { id="right",  label="Right",  out=SNES.RIGHT,  key1="d",     key2="TrkRt"  },
-    { id="btn_a",  label="A btn",  out=SNES.A,      key1="m",     key2="TrkClk" },
-    { id="btn_b",  label="B btn",  out=SNES.B,      key1="n"                    },
-    { id="btn_x",  label="X btn",  out=SNES.X,      key1="k"                    },
-    { id="btn_y",  label="Y btn",  out=SNES.Y,      key1="j"                    },
-    { id="btn_l",  label="L btn",  out=SNES.L,      key1="q"                    },
-    { id="btn_r",  label="R btn",  out=SNES.R,      key1="p"                    },
-    { id="start",  label="Start",  out=SNES.START,  key1="Enter"                },
-    { id="select", label="Select", out=SNES.SELECT, key1="BkSpc"                },
+    { id="up",     label="Up",     out=GEN.UP,    key1="w",     key2="TrkUp"  },
+    { id="down",   label="Down",   out=GEN.DOWN,  key1="s",     key2="TrkDn"  },
+    { id="left",   label="Left",   out=GEN.LEFT,  key1="a",     key2="TrkLt"  },
+    { id="right",  label="Right",  out=GEN.RIGHT, key1="d",     key2="TrkRt"  },
+    { id="btn_b",  label="B btn",  out=GEN.B,     key1="m",     key2="TrkClk" },
+    { id="btn_a",  label="A btn",  out=GEN.A,     key1="n"                    },
+    { id="btn_c",  label="C btn",  out=GEN.C,     key1="k"                    },
+    { id="start",  label="Start",  out=GEN.START, key1="Enter"                },
 }
 
 -- Built once the screen helpers below exist; save_config/load_config reach it
 -- as an upvalue.
 local kb
 
--- Renderer: 0 = Speed (Core-1 worker), 1 = Accuracy (Core 0).
--- The worker binds one frame-boundary snapshot of the palette and BG base
--- registers, so games that rewrite those mid-frame (HDMA colour gradients,
--- mid-frame base switches) render them wrong. Core 0 re-reads them per span.
-local renderer = 0
+-- Frameskip: the 68000, Z80, VDP and FM all still run every frame; only
+-- rendering and the blit are skipped. Genesis is by far the heaviest system
+-- here, so this is the first knob to reach for if a game runs slow.
+local SKIPS = { 0, 1, 2, 3 }
+local frameskip = 2
+
+-- Idle skip: the emulator detects a 68000 loop that cannot exit on its own --
+-- registers frozen, no memory write, no port read -- and hands it the rest of
+-- the scanline instead of interpreting a spin whose results are discarded.
+-- Worth about 20% and it is the largest single gain in the port, but it has to
+-- infer a loop's intent, so it is switchable per-game for compatibility.
+-- Turn it off if a game stalls or crawls at a fixed point while music plays on.
+local idle_skip = true
 
 local found_roms = {}   -- { {name, path}, ... }
 local seen_lower = {}
@@ -102,7 +105,7 @@ local selected_rom = 1
 local selected_rom_name = nil
 local scr = nil
 
--- Stable, manager-registered root (same pattern as the GameBoy launcher).
+-- Stable, manager-registered root (same pattern as the SNES launcher).
 local root = apps.new_root({
     w = W, h = H,
     bg_color = "#000000", bg_opa = lvgl.OPA(255),
@@ -136,7 +139,8 @@ local function save_config()
     local f = io.open(CFG_PATH, "w")
     if not f then return end
     kb:save_lines(f)
-    f:write(string.format("renderer=%d\n", renderer))
+    f:write(string.format("frameskip=%d\n", frameskip))
+    f:write("idleskip=" .. (idle_skip and "1" or "0") .. "\n")
     if #found_roms > 0 then
         f:write("rom=" .. found_roms[selected_rom].name .. "\n")
     end
@@ -154,8 +158,13 @@ local function load_config()
         -- Binding and trk_* lines are the library's; the patterns below are
         -- disjoint from them, so an unconsumed line just falls through.
         kb:load_line(line)
-        local rmode = line:match("^renderer=([01])$")
-        if rmode then renderer = tonumber(rmode) end
+        local fs = line:match("^frameskip=(%d+)$")
+        if fs then
+            local v = tonumber(fs)
+            if v and v >= 0 and v <= 3 then frameskip = v end
+        end
+        local isk = line:match("^idleskip=(%d)$")
+        if isk then idle_skip = (isk == "1") end
         local rname = line:match("^rom=(.+)$")
         if rname then selected_rom_name = rname end
     end
@@ -164,7 +173,7 @@ end
 -- ============================================================
 -- Screen management — single navigable scope per view, focusables as direct
 -- children; the new view goes to nav.replace BEFORE the old one is deleted
--- (GameBoy/App Library swap_view pattern).
+-- (SNES/App Library swap_view pattern).
 -- ============================================================
 local FONT = lvgl.BUILTIN_FONT.MONTSERRAT_12
 
@@ -187,27 +196,6 @@ end
 local create_main_screen
 local create_help_screen
 local create_about_screen
-local create_radio_screen
-
--- ============================================================
--- Radios vs the Speed renderer
--- ============================================================
--- The Core-1 render worker's band context is 13,076 bytes and lives on that
--- task's stack, so Speed needs a 16KB (or at least 14KB) contiguous block of
--- internal SRAM. BLE and WiFi hold enough of that pool that the worker cannot
--- spawn; the module then renders on Core 0, which runs but is what Accuracy
--- already does. This prompt exists so that picking Speed actually gets it.
--- The second argument to the _*_set_enabled bindings applies the change
--- without writing prefs, so the next boot restores whatever the user had set;
--- they are NOT switched back on when the module exits.
-local function radios_on()
-    return _ble_get_enabled(), _wifi_get_enabled()
-end
-
-local function radios_off()
-    if _ble_get_enabled() then _ble_set_enabled(false, false) end
-    if _wifi_get_enabled() then _wifi_set_enabled(false, false) end
-end
 
 -- Deferred launch: the firmware tears Lua down, runs the module, then
 -- recreates Lua and returns to the launcher. The 50ms timer lets the caller's
@@ -220,12 +208,9 @@ local function launch_now()
         period = 50,
         cb = function(t)
             t:delete()
-            -- -stackkb 24 is a ceiling: the firmware caps the module task
-            -- there instead of taking a 32KB rung, which leaves internal
-            -- SRAM for the render worker.
             local args = { ELF_PATH, to_vfs_path(rom.path),
-                "-stackkb", "24",
-                "-render", tostring(renderer),
+                "-fs", tostring(frameskip),
+                "-idle", idle_skip and "1" or "0",
                 "-trkball", ts }
             -- Omitted when nothing is bound, so the firmware falls back
             -- to passthrough instead of parsing an empty table.
@@ -264,6 +249,13 @@ create_main_screen = function()
             w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
         }
 
+        c:Label{
+            text = SUBTITLE,
+            text_font = FONT,
+            text_color = "#888888",
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+        }
+
         -- ROM selector — dropdown over all found ROMs
         local rom_opts = "No ROMs found"
         if #found_roms > 0 then
@@ -285,20 +277,38 @@ create_main_screen = function()
             save_config()
         end)
 
-        -- One row rather than a setting_row pair: the main screen is tight,
-        -- and this is the control most likely to be changed per game.
-        local function rend_text()
-            return (renderer == 0) and "Renderer: Speed" or "Renderer: Accuracy"
+        local function skip_text()
+            return (frameskip == 0) and "Frameskip: Off"
+                or ("Frameskip: " .. frameskip)
         end
-        local rendBtn = c:Button{ w = lvgl.PCT(100), h = 28 }
-        local rendLbl = rendBtn:Label{
-            text = rend_text(),
+        local skipBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        local skipLbl = skipBtn:Label{
+            text = skip_text(),
             text_font = FONT,
             align = lvgl.ALIGN.CENTER,
         }
-        rendBtn:onClicked(function()
-            renderer = (renderer == 0) and 1 or 0
-            rendLbl:set{ text = rend_text() }
+        skipBtn:onClicked(function()
+            local idx = 1
+            for i, v in ipairs(SKIPS) do
+                if v == frameskip then idx = i break end
+            end
+            frameskip = SKIPS[(idx % #SKIPS) + 1]
+            skipLbl:set{ text = skip_text() }
+            save_config()
+        end)
+
+        local function idle_text()
+            return idle_skip and "Idle Skip: On" or "Idle Skip: Off"
+        end
+        local idleBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        local idleLbl = idleBtn:Label{
+            text = idle_text(),
+            text_font = FONT,
+            align = lvgl.ALIGN.CENTER,
+        }
+        idleBtn:onClicked(function()
+            idle_skip = not idle_skip
+            idleLbl:set{ text = idle_text() }
             save_config()
         end)
 
@@ -321,12 +331,6 @@ create_main_screen = function()
             end
             if #found_roms == 0 then
                 status:set{ text = "No ROMs found!" }
-                return
-            end
-            -- Only Speed needs the radios down, and only when one is up.
-            local ble, wifi = radios_on()
-            if renderer == 0 and (ble or wifi) then
-                create_radio_screen()
                 return
             end
             status:set{ text = "Loading..." }
@@ -386,57 +390,6 @@ create_help_screen = function()
 end
 
 -- ============================================================
--- Speed-renderer memory prompt. Reached from Play only when the Speed
--- renderer is selected and at least one radio is up.
--- ============================================================
-create_radio_screen = function()
-    show_screen(function(c)
-        c:Label{
-            text = "FREE MEMORY?",
-            text_font = FONT,
-            text_color = ACCENT,
-            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
-        }
-
-        local msg = c:Label{
-            text = "The Speed renderer needs memory\n"
-                 .. "that Bluetooth and WiFi are\n"
-                 .. "holding.\n\n"
-                 .. "Continue turns BOTH of them off\n"
-                 .. "before the game starts. They stay\n"
-                 .. "off after you quit - turn them\n"
-                 .. "back on in Settings > Wireless,\n"
-                 .. "or restart the device.\n\n"
-                 .. "The Accuracy renderer runs\n"
-                 .. "without shutting anything down.",
-            text_font = FONT,
-            text_color = "#CCCCCC",
-            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
-        }
-
-        local yesBtn = c:Button{ w = lvgl.PCT(48), h = 32 }
-        yesBtn:Label{ text = "Continue", align = lvgl.ALIGN.CENTER }
-        yesBtn:onClicked(function()
-            msg:set{ text = "Turning Bluetooth and WiFi off..." }
-            -- Torn down one paint later so that text is on screen for it;
-            -- launch_now() then takes its own 50ms before Lua goes away.
-            lvgl.Timer{
-                period = 50,
-                cb = function(t)
-                    t:delete()
-                    radios_off()
-                    launch_now()
-                end
-            }
-        end)
-
-        local noBtn = c:Button{ w = lvgl.PCT(48), h = 32 }
-        noBtn:Label{ text = "Cancel", align = lvgl.ALIGN.CENTER }
-        noBtn:onClicked(function() create_main_screen() end)
-    end)
-end
-
--- ============================================================
 -- About screen — emulator license and credits.
 -- The scope container scrolls (nav.SCROLL_FIRST), so the text runs
 -- past the panel height without extra machinery.
@@ -451,29 +404,25 @@ create_about_screen = function()
         }
 
         c:Label{
-            text = "SNES emulation by Snes9x, via the\n"
-                 .. "retro-go pure-C port, based on\n"
-                 .. "libretro snes9x2010.\n\n"
-                 .. "LICENSE - PLEASE NOTE:\n"
-                 .. "Snes9x is NOT free software. It may\n"
-                 .. "be used and distributed for\n"
-                 .. "NON-COMMERCIAL, personal use only.\n"
-                 .. "Commercial use requires permission\n"
-                 .. "from the copyright holders.\n\n"
-                 .. "Also includes:\n"
-                 .. "ndssfc (GPL v2) (c) 2010 dking,\n"
-                 .. "  BassAceGold, ShadauxCat, Nebuleon\n"
-                 .. "ZSNES code (GPL v2)\n"
-                 .. "  (c) 1997-2001 ZSNES Team\n\n"
-                 .. "Snes9x (c) Gary Henderson,\n"
-                 .. "Jerremy Koot, John Weidman,\n"
-                 .. "Brad Jorsch, Nach, zones, BearOso,\n"
-                 .. "OV2, byuu, neviksti, Shay Green\n"
-                 .. "and many others - the full list is\n"
-                 .. "in the source tree's LICENSE.\n\n"
-                 .. "Super Nintendo is a trademark of\n"
-                 .. "Nintendo. No game ROMs are included\n"
-                 .. "- supply your own.",
+            text = "Genesis / Mega Drive emulation by\n"
+                 .. "Gwenesis (c) bzhxx\n"
+                 .. "License: GNU AGPL v3 (sources say\n"
+                 .. "GPLv3); the full source ships with\n"
+                 .. "this app.\n\n"
+                 .. "Components:\n"
+                 .. "68000 core from Musashi\n"
+                 .. "  (c) Karl Stenerud\n"
+                 .. "Z80 core (c) Marat Fayzullin\n"
+                 .. "  1994-2007 - NOT for commercial\n"
+                 .. "  distribution\n"
+                 .. "YM2612 FM and SN76489 PSG cores\n"
+                 .. "  from the Gwenesis tree\n\n"
+                 .. "PLEASE NOTE: because of the Z80\n"
+                 .. "core above, this app may not be\n"
+                 .. "distributed commercially.\n\n"
+                 .. "Sega, Genesis and Mega Drive are\n"
+                 .. "trademarks of Sega. No game ROMs\n"
+                 .. "are included - supply your own.",
             text_font = FONT,
             text_color = "#CCCCCC",
             w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,

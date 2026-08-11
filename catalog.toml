@@ -50,9 +50,9 @@ files = ["main.lua", "nes.app.elf"]
 id = "Snes"
 name = "Snes"
 author = "PhilMo6"
-version = "1.1.0"
+version = "1.2.0"
 type = "elf"
-description = "SNES emulator (Snes9x)"
+description = "SNES emulator (Snes9x) with battery saves"
 category = "Games"
 min_fw = 8
 files = ["main.lua", "snes.app.elf"]
@@ -90,6 +90,17 @@ description = "Game Gear, Master System and SG-1000 emulator (SMS Plus)"
 category = "Games"
 min_fw = 8
 files = ["main.lua", "sega8.app.elf"]
+
+[[apps]]
+id = "Genesis"
+name = "Genesis"
+author = "PhilMo6"
+version = "1.0.0"
+type = "elf"
+description = "Sega Genesis / Mega Drive emulator (Gwenesis) with battery saves"
+category = "Games"
+min_fw = 8
+files = ["main.lua", "genesis.app.elf"]
 
 [[apps]]
 id = "PICO-8"
