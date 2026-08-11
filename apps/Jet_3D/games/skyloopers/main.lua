@@ -920,6 +920,343 @@ local function rebuildItemPool()
 end
 rebuildItemPool()   -- derive it, so an `on` default can never go stale
 
+-- ---------------------------------------------------------------------------
+-- Sound
+-- ---------------------------------------------------------------------------
+-- Everything is SYNTHESISED through jet.sound (square / noise / triangle):
+-- no clip files, so the game stays a single main.lua and a track generated
+-- from a seed makes noise generated from nothing.
+--
+-- The mixer gives 8 voices at 22050 Hz mono. Two rules follow from that:
+--   * the engine note is ONE held voice, retuned every frame with
+--     jet.sound.set (which preserves oscillator phase, so the pitch sweeps
+--     instead of clicking). Held voices are also the last the mixer steals.
+--   * events fire for the PLAYER only, never the AI — six racers trading
+--     items would starve the mixer and turn into mush.
+-- Effects and music are separate: they are produced completely differently
+-- (effects are synthesised live and track the ship, music is a pre-rendered
+-- loop) and they cost completely different amounts, so one switch for both
+-- was never the right control.
+local sfxOn, sfxVol = true, 0.9
+local musicOn, musicVol = true, 0.9
+
+-- snd/eng are TABLES, and everything they need is defined inside the
+-- do-block below. Lua allows only 200 locals per function and the main
+-- chunk is a function: one local per sound blew that limit outright.
+-- Scoping the constants and helpers here releases their slots at `end`
+-- while the closures keep them as upvalues.
+local snd, eng = {}, {}
+do
+-- Waveforms. ORGAN and PULSE carry enough harmonics to read as instruments;
+-- flat SQUARE is reserved for deliberately harsh cues.
+local W_SQ, W_NOISE, W_TRI = 0, 1, 2
+local W_SAW, W_TILT, W_PULSE, W_ORGAN = 3, 4, 5, 6
+local W_SINE = 7
+
+-- Note frequencies. Cues are built from real intervals so they sound
+-- deliberate rather than arbitrary: a RISING PERFECT FIFTH (2:3) reads as
+-- success, a FALLING fifth as cancel, and a TRITONE as refusal. That is the
+-- standard emotional vocabulary of interface audio.
+local G4, C5, D5, E5, G5 = 392, 523, 587, 659, 784
+local A5, C6, D6, E6, G6 = 880, 1047, 1175, 1319, 1568
+local A6, C7 = 1760, 2093
+
+-- Every one-shot goes through here, so this is the one place the effects
+-- level has to be applied.
+local function fx(freq, ms, o)
+    if not sfxOn then return nil end
+    if o and o.volume then o.volume = o.volume * sfxVol end
+    return jet.sound.fx(freq, ms, o)
+end
+
+-- The engine's held layers are steered rather than retriggered, so they need
+-- the same treatment on every update.
+local function setv(voice, freq, vol)
+    jet.sound.set(voice, freq, vol * sfxVol)
+end
+
+-- Interface ----------------------------------------------------------------
+-- Deliberately pitched ABOVE the engine band (150-1300Hz) and kept very
+-- short. Frequency separation is what keeps interface audio legible instead
+-- of smearing into whatever else is sounding, and brevity is what keeps a
+-- menu from feeling like it is nagging.
+function snd.menuMove() fx(G6, 22, { volume = 0.10, wave = W_PULSE, attack = 1, decay = 18 }) end
+function snd.menuSel()  fx(C6, 90, { to = G6, volume = 0.20, wave = W_ORGAN, attack = 2 }) end
+function snd.menuBack() fx(G6, 90, { to = C6, volume = 0.16, wave = W_ORGAN, attack = 2 }) end
+function snd.menuDeny() fx(C6, 150, { to = 740, volume = 0.20, wave = W_SAW, attack = 2, buzz = true }) end
+function snd.pause()    fx(A5, 110, { to = E5, volume = 0.18, wave = W_ORGAN, attack = 3 }) end
+function snd.unpause()  fx(E5, 110, { to = A5, volume = 0.18, wave = W_ORGAN, attack = 3 }) end
+
+-- Race events --------------------------------------------------------------
+-- The countdown holds one pitch and GO resolves a fifth above it, so the
+-- start reads as a musical phrase rather than three beeps and a fourth beep.
+function snd.count()  fx(G5, 150, { volume = 0.26, wave = W_ORGAN, attack = 4, decay = 110 }) end
+function snd.go()     fx(D6, 420, { to = G6, volume = 0.34, wave = W_ORGAN, attack = 6 }) end
+function snd.lap()    fx(C6, 220, { to = G6, volume = 0.28, wave = W_ORGAN, attack = 5 }) end
+
+-- Rising arpeggios: later notes use a longer attack so one call lays out a
+-- sequence without needing a scheduler.
+function snd.finalLap()
+    fx(C6, 160, { volume = 0.26, wave = W_ORGAN, attack = 4 })
+    fx(E6, 200, { volume = 0.24, wave = W_ORGAN, attack = 130 })
+    fx(G6, 320, { volume = 0.26, wave = W_ORGAN, attack = 300 })
+end
+function snd.finish()
+    fx(C5, 240, { volume = 0.28, wave = W_ORGAN, attack = 5 })
+    fx(E5, 260, { volume = 0.26, wave = W_ORGAN, attack = 150 })
+    fx(G5, 300, { volume = 0.26, wave = W_ORGAN, attack = 320 })
+    fx(C6, 520, { volume = 0.28, wave = W_ORGAN, attack = 500 })
+end
+
+-- Position changes: the most useful feedback in a racer, because it reports
+-- something that happened behind you where you cannot see it.
+function snd.overtake()  fx(A5, 150, { to = E6, volume = 0.24, wave = W_ORGAN, attack = 3 }) end
+function snd.overtaken() fx(E6, 170, { to = A5, volume = 0.24, wave = W_SAW, attack = 3 }) end
+
+-- Items --------------------------------------------------------------------
+function snd.pickup()   fx(C6, 110, { to = G6, volume = 0.26, wave = W_ORGAN, attack = 3 }) end
+function snd.zap()      fx(1500, 200, { to = 240, volume = 0.28, wave = W_PULSE, attack = 1 }) end
+function snd.rocket()   fx(140, 560, { to = 620, volume = 0.32, wave = W_NOISE, attack = 25, buzz = true }) end
+function snd.mine()     fx(320, 140, { to = 130, volume = 0.24, wave = W_TILT, attack = 2 }) end
+function snd.shieldUp() fx(G5, 320, { to = G6, volume = 0.26, wave = W_ORGAN, attack = 20 }) end
+function snd.shieldEnd()fx(G6, 260, { to = G5, volume = 0.18, wave = W_TRI, attack = 4 }) end
+function snd.dud()      fx(300, 170, { to = 150, volume = 0.18, wave = W_SAW, attack = 2 }) end
+function snd.boost()    fx(250, 340, { to = 780, volume = 0.30, wave = W_SINE,
+                                       attack = 5, vib = 22, vibdepth = 0.02,
+                                       tremdepth = 0.70 }) end
+function snd.pad()      fx(220, 240, { to = 460, volume = 0.24, wave = W_NOISE, attack = 8 }) end
+-- Boost ENDING is an event worth hearing, not just a level dropping back.
+-- A throbbing fall reads as a charge draining away.
+function snd.powerdown()fx(760, 380, { to = 150, volume = 0.24, wave = W_SINE,
+                                        attack = 2, vib = 14, vibdepth = 0.02,
+                                        tremdepth = 0.60 }) end
+
+-- Taking a hit vs having one bounce off: a dull low thud against a bright
+-- metallic ping, so which happened is obvious without looking.
+function snd.hit()     fx(400, 480, { to = 80, volume = 0.38, wave = W_NOISE, attack = 1 }) end
+function snd.blocked() fx(C7, 170, { to = G6, volume = 0.26, wave = W_PULSE, attack = 1 }) end
+
+-- Ship and world -----------------------------------------------------------
+function snd.land()  fx(180, 220, { to = 90, volume = 0.26, wave = W_NOISE, attack = 2 }) end
+function snd.fall()  fx(600, 640, { to = 70, volume = 0.30, wave = W_TILT, attack = 4 }) end
+
+-- A rival passing close: the pitch falls THROUGH the pass, which is the
+-- Doppler shift you would really hear. Cheap, and it makes the pack feel
+-- physically present instead of silent.
+function snd.passBy() fx(900, 340, { to = 260, volume = 0.22, wave = W_NOISE, attack = 40 }) end
+
+-- Incoming rocket: dissonant and repeating, because it has to read as a
+-- WARNING and must never be mistakable for a reward.
+local rocketWarnT = 0
+function snd.rocketWarn(dt)
+    rocketWarnT = rocketWarnT - dt
+    if rocketWarnT > 0 then return end
+    rocketWarnT = 0.42
+    fx(740, 180, { to = 1100, volume = 0.24, wave = W_SQ, attack = 2, buzz = true })
+end
+
+-- Wrong way: an alternating two-tone alarm, throttled. Two alternating tones
+-- because one repeated pitch reads as a UI blip rather than an alarm.
+local wrongT, wrongFlip = 0, false
+function snd.wrongWay(dt)
+    wrongT = wrongT - dt
+    if wrongT > 0 then return end
+    wrongT = 0.30
+    wrongFlip = not wrongFlip
+    fx(wrongFlip and 660 or 495, 240, { volume = 0.22, wave = W_SQ, attack = 3 })
+end
+
+-- Wall scrape is CONTINUOUS in the physics (the wall branch runs every frame
+-- the ship is against it), so it needs a throttle or it would eat a voice per
+-- frame. Low filtered noise: a rub, not a rattle.
+local scrapeT = 0
+function snd.scrape(dt)
+    scrapeT = scrapeT - dt
+    if scrapeT > 0 then return end
+    scrapeT = 0.13
+    fx(150, 160, { volume = 0.15, wave = W_NOISE, attack = 20 })
+end
+
+-- Engine -------------------------------------------------------------------
+-- These are hover ships with ROCKET engines, and that dictates the whole
+-- shape of the sound. A rocket has no cylinders firing, so it has no
+-- harmonic exhaust note to build a mix around: it is broadband roar over a
+-- low rumble, and pitched content is a minor accent rather than the body.
+-- A hovercraft adds an air cushion, which is also noise. So two of the three
+-- layers are filtered noise at different cutoffs -- which is how rocket audio
+-- is actually built -- and only one carries a pitch.
+--   roar    the flame. LOUDEST layer, and kept DARK on purpose: a rocket is
+--           low-frequency dominated, and a bright plume is just static.
+--           Thrust demand moves its level far more than its cutoff. It
+--           crackles, because a plume is never steady. It also carries the
+--           bottom of the engine alone, which is why it runs as low and as
+--           loud as it does.
+--
+-- Three layers, not four: a separate low rumble costs a whole multi-pole
+-- noise voice every frame, in a band this speaker barely reproduces. The
+-- frame rate is worth more than that layer was.
+--   hover   the ground-effect cushion. Grounded only, so leaving the deck
+--           is an audible event and not just a visual one. Kept LOW: a
+--           solo measurement showed it was the hissiest layer per unit of
+--           loudness, and its level tracked speed, which is what made
+--           accelerating sound like static.
+--   hum     the reactor. The ONE pitched layer, and it carries the whole
+--           speed cue, because the plume is too dark to do it. Triangle,
+--           because it is the smoothest wave that still has presence: this
+--           layer sweeps upward in pitch, and a harmonically rich wave
+--           turns that sweep into rising aliasing hash.
+-- Four held voices of eight. Held voices are steal-proof, so events share
+-- the remaining four; the only cue that wants more is the finish fanfare,
+-- and by then the engine has stopped.
+local engRoar, engHover, engHum = nil, nil, nil
+-- Boost is its OWN sound, not the engine turned up: an energy shimmer that
+-- exists only while boosting, plus a discharge when it ends. Created and
+-- destroyed on the transition, so it costs a voice for 1.6s and no longer.
+local engBoost, wasBoost = nil, false
+
+-- Pitched for the T-Deck speaker, not for realism: a small driver rolls off
+-- hard below a few hundred Hz, so a "correct" rocket -- which lives mostly
+-- below 100Hz -- would be silent on this hardware.
+--
+-- This layer carries the ACCELERATION cue: its sweep is the main thing that
+-- tells you how fast you are going, so its range is not free to move far.
+-- 120-340 was tried and was too low -- the engine turned into an
+-- undifferentiated low rush. 160-520 is the previous 175-570 nudged down
+-- just enough to take the edge off the resonance without losing the sweep.
+local HUM_LO, HUM_HI = 160, 520
+
+-- Own clock: flameT is declared later in the file, so it is not an upvalue
+-- here and referencing it would silently read a nil global.
+local engClock = 0
+-- Plume crackle: a random walk, not an oscillator. A rocket's roughness is
+-- irregular, and anything periodic reads as a tremolo effect instead.
+local engCrackle = 0
+
+function eng.start()
+    if engRoar or not sfxOn then return end
+    -- On a NOISE voice the frequency argument is the filter cutoff, so these
+    -- three are one plume split across three bands rather than three sounds.
+    -- STEEPNESS, not cutoff, is what removes television static. One pole
+    -- rolls off at only 6dB/octave, so a noise voice nominally at 500Hz
+    -- still carries plenty of 5kHz; stacked layers of that ARE static, and
+    -- no cutoff low enough to fix it leaves anything audible. Measured share
+    -- of energy above 4kHz for one voice: 1 pole 31%, 2 poles 7%, 4 poles
+    -- 1%. So these run steep AND with a high cutoff, which is a defined band
+    -- of rumble rather than a hiss tail, and keeps the plume audible on a
+    -- small speaker.
+    engRoar   = jet.sound.fx(600, 0, { volume = 0.0, wave = W_NOISE,
+                                       attack = 420, hold = true, poles = 4,
+                                       vib = 6, vibdepth = 0.11 })
+    engHover  = jet.sound.fx(900, 0, { volume = 0.0, wave = W_NOISE,
+                                       attack = 300, hold = true, poles = 4 })
+    -- TRIANGLE, not organ. Nothing here is band-limited: an oscillator is
+    -- sampled straight off its shape, so a wave with strong high harmonics
+    -- folds them back as inharmonic aliasing, and that hash GROWS WITH
+    -- PITCH. The organ measured 9% of its own level above 4kHz at 570Hz
+    -- against 1.6% at 175Hz -- static that arrived as the ship sped up. A
+    -- triangle falls off as 1/n^2 and measures 3.6%.
+    engHum    = jet.sound.fx(HUM_LO, 0, { volume = 0.0, wave = W_TRI,
+                                          attack = 600, hold = true,
+                                          vib = 9, vibdepth = 0.006 })
+end
+
+function eng.stop()
+    if engRoar then jet.sound.stop(engRoar); engRoar = nil end
+    if engHover then jet.sound.stop(engHover); engHover = nil end
+    if engHum then jet.sound.stop(engHum); engHum = nil end
+    if engBoost then jet.sound.stop(engBoost); engBoost = nil end
+    wasBoost = false
+    engCrackle = 0
+end
+
+-- Takes the player racer so every driving signal is available here rather
+-- than threaded through jet.update as half a dozen parameters.
+function eng.tick(rc, vmax, dt)
+    if not engRoar then return end
+    engClock = engClock + dt
+
+    local f  = (rc.speed > 0) and (rc.speed / vmax) or 0
+    local fc = math.min(1.2, f)
+    local boosting   = rc.boostT > 0
+    local onThrottle = rc.thrusting or false
+    local grounded   = rc.grounded
+
+    -- Overdrive, on its own voice: a pulsating SINE. A sine has no
+    -- harmonics, so it cannot read as an engine, because an engine is its
+    -- harmonics. The throb is what makes it energy instead of a test tone:
+    -- 8Hz, deep, with a trace of pitch wobble locked to the same LFO.
+    if boosting and not wasBoost then
+        engBoost = jet.sound.fx(470, 0, { volume = 0.0, wave = W_SINE,
+                                          attack = 70, hold = true,
+                                          vib = 8, vibdepth = 0.012,
+                                          tremdepth = 0.85 })
+    elseif wasBoost and not boosting then
+        if engBoost then jet.sound.stop(engBoost); engBoost = nil end
+        snd.powerdown()
+    end
+    wasBoost = boosting
+
+    -- THRUST DEMAND, 0..1. Cornering scrubs speed (see CORNER_SCRUB) and a
+    -- climb costs height: both are thrusters pushing against something.
+    -- Coasting is never effort, whatever the ship is doing.
+    local corner = math.abs(rc.turnRate) / (TURN * rc.st.turn)
+    if corner > 1 then corner = 1 end
+    local climb = 0
+    local a, b = stC[rc.stIdx % STATIONS], stC[(rc.stIdx + 5) % STATIONS]
+    if a and b then
+        climb = (b.y - a.y) / 24000
+        if climb < 0 then climb = 0 elseif climb > 1 then climb = 1 end
+    end
+    local load = corner * 0.55 + climb * 0.75
+    if load > 1 then load = 1 end
+    if not onThrottle then load = load * 0.35 end
+
+    -- Off the throttle the rocket throttles DOWN: quieter and much darker.
+    -- That drop is the whole lift-off-the-power cue, so it is not subtle.
+    local thr = onThrottle and 1.0 or 0.45
+
+    -- Random walk, decayed toward zero so it wanders instead of jumping.
+    -- Once per frame is ~5-7Hz of irregular movement, which is about the
+    -- rate a plume chuffs at.
+    engCrackle = engCrackle * 0.72 + (math.random() - 0.5) * 0.30
+
+    -- The plume alone holds the bottom of the engine up, so it runs low and
+    -- loud: a 270Hz floor and a narrow sweep keep most of its range under the
+    -- ~500Hz noise gain cliff, where a noise voice is boosted up to 8x. Four
+    -- poles mean reaching that low costs no hiss.
+    local roarCut = (270 + 470 * fc + 210 * load) * (onThrottle and 1 or 0.62)
+    local roarVol = (0.112 + 0.092 * fc + 0.058 * load) * thr
+    if boosting then roarCut = roarCut * 1.45; roarVol = roarVol * 1.25 end
+    -- Flat out, the airstream itself gets bright. A rocket has no rev
+    -- limiter to bounce off, so airflow is the honest at-the-ceiling cue.
+    if fc > 0.95 then roarCut = roarCut * 1.06 end
+    setv(engRoar, roarCut * (1 + engCrackle * 0.12),
+                           roarVol * (1 + engCrackle * 0.20))
+
+    -- Cushion: grounded only, and it brightens with speed as the ship
+    -- scrapes more air off the deck.
+    setv(engHover, 700 + 320 * fc,
+                            grounded and (0.034 + 0.030 * fc) or 0.0)
+
+    -- Reactor: the pitch cue. Rises with speed AND with thrust demand, so
+    -- the ship audibly strains through a corner or a climb at the same road
+    -- speed -- something a speed-only note can never do.
+    local hf = HUM_LO + (HUM_HI - HUM_LO) * fc + 85 * load
+    local hv = (0.033 + 0.050 * fc + 0.025 * load) * (onThrottle and 1 or 0.8)
+    if boosting then hf = hf * 1.18; hv = hv * 1.15 end
+    if not grounded then hv = hv * 1.10 end
+    setv(engHum, hf, hv)
+
+    if engBoost then
+        -- Climbs as the boost runs. The throb is per-sample in the mixer:
+        -- pulsing this from Lua at frame rate would alias. A sine carries
+        -- no harmonics, so it needs more level than a pulse to be heard
+        -- over the plume.
+        setv(engBoost, 440 + 260 * fc, 0.085 + 0.050 * fc)
+    end
+end
+end
+
 local chosenTypes = { 1, 2, 3 }   -- [racer idx] -> SHIP_TYPES index
 
 -- Ship library: every hull+flame pair is BAKED ONCE at startup and reused
@@ -987,6 +1324,7 @@ local function placeAtStart(rc)
 end
 
 local function respawn(rc)
+    if rc == racers[1] then snd.fall() end
     -- Back to the last checkpoint (every 32 stations, see CPS), on the deck
     -- centre, facing along the track.
     local st = (rc.cp * (STATIONS // CPS)) % STATIONS
@@ -1113,8 +1451,18 @@ end
 local function fireWeapon(rc, ranked)
     local w = rc.weapon
     rc.weapon = nil
-    if w == 3 then rc.boostT = 1.6 return true end
-    if w == 5 then rc.shieldT = SHIELD_T return true end
+    -- Player-only sounds: six racers firing would starve the 8 voices.
+    local mine = (rc == racers[1])
+    if w == 3 then
+        rc.boostT = 1.6
+        if mine then snd.boost() end
+        return true
+    end
+    if w == 5 then
+        rc.shieldT = SHIELD_T
+        if mine then snd.shieldUp() end
+        return true
+    end
     if w == 2 then
         local s = shotObj(2)
         local fx, fz = math.sin(rc.heading), math.cos(rc.heading)
@@ -1123,6 +1471,7 @@ local function fireWeapon(rc, ranked)
         s.ttl, s.armT, s.owner = 25, 0.8, rc
         s.obj:enabled(true)
         shots[#shots + 1] = s
+        if mine then snd.mine() end
         return true
     end
     -- Homing shots pick their target by ROLE. Finished ships are out of the
@@ -1175,6 +1524,11 @@ local function fireWeapon(rc, ranked)
     end
     s.obj:enabled(true)
     shots[#shots + 1] = s
+    if mine then
+        if not target then snd.dud()
+        elseif w == 4 then snd.rocket()
+        else snd.zap() end
+    end
     return target ~= nil
 end
 
@@ -1183,8 +1537,15 @@ end
 local function spinOut(rc)
     -- SHIELD absorbs every hit for its full duration and is NOT consumed by
     -- one. The shot still dies at the contact point it hit the bubble.
-    if rc.shieldT > 0 then return end
-    if rc.spinT <= 0 and rc.graceT <= 0 then rc.spinT, rc.spinA = 1.1, 0 end
+    local mine = (rc == racers[1])
+    if rc.shieldT > 0 then
+        if mine then snd.blocked() end
+        return
+    end
+    if rc.spinT <= 0 and rc.graceT <= 0 then
+        rc.spinT, rc.spinA = 1.1, 0
+        if mine then snd.hit() end
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -1252,6 +1613,7 @@ local function driveRacer(rc, dt, thrust, turn)
         rc.px, rc.pz = rc.px - nv.x * ex, rc.pz - nv.z * ex
         lat = lim
         rc.speed = rc.speed * (1 - 1.6 * dt)
+        if rc == racers[1] then snd.scrape(dt) end
         local ht = stationHeading(stI)
         if math.cos(rc.heading - ht) < 0 then ht = ht + 3.14159265 end
         rc.heading = rc.heading + wrapAngle(ht - rc.heading) * math.min(1, 5 * dt)
@@ -1278,6 +1640,7 @@ local function driveRacer(rc, dt, thrust, turn)
             -- offset inside the pad strip same padCentre() as the mesh.
             local bi = stI // BAND
             if isPadBand(bi) and math.abs(lat - padCentre(bi)) < padHalf(bi) then
+                if rc.boostT <= 0 and rc == racers[1] then snd.pad() end
                 rc.boostT = math.max(rc.boostT, 1.0)
             end
         else
@@ -1290,6 +1653,8 @@ local function driveRacer(rc, dt, thrust, turn)
         local deck = deckY + HOVER
         if over and rc.vy < 0 and prevY >= deck and rc.py <= deck then
             rc.py, rc.grounded, rc.vy = deck, true, 0
+            -- Touching down is only worth a sound after a real drop.
+            if rc == racers[1] and rc.vy < -60000 then snd.land() end
         end
         if rc.py < KILLY then respawn(rc) return end
     end
@@ -1302,8 +1667,12 @@ local function driveRacer(rc, dt, thrust, turn)
     if rc.progress >= STATIONS then
         rc.progress = rc.progress - STATIONS
         rc.lap = rc.lap + 1
+        if rc == racers[1] and rc.lap < 3 then
+            if rc.lap == 2 then snd.finalLap() else snd.lap() end
+        end
         if rc.lap >= 3 and not rc.finishT then
             rc.finishT = raceT
+            if rc == racers[1] then snd.finish() end
             rc.weapon = nil          -- finished = passive: hands off items
         end
     elseif rc.progress < -STATIONS then
@@ -1578,6 +1947,12 @@ local stats = { wins = 0, losses = 0, races = 0 }
 -- Countdown for the "no target ahead" HUD note. The shot still goes out
 -- and the item is still spent; this only explains why it will hit nothing.
 local noTgtT = 0
+-- Race-audio state. Position changes, close passes and an incoming rocket
+-- are all things the player CANNOT see happening, which is exactly why they
+-- are worth a sound.
+local lastPos = nil          -- player's place last frame
+local passCool = 0           -- one whoosh per pass, not one per frame
+local lastShieldT = 0        -- to catch the shield expiring
 
 -- Shared navigation: Up/Down actions or trackball vertical; select via
 -- Thrust or trackball click. Returns true on select. The trackball is
@@ -1591,9 +1966,13 @@ local function menuNav(n)
     if pressed(ACT.down) then moved = 1 end
     if menuDy < -6 then moved = -1; menuDy = 0 end
     if menuDy >  6 then moved = 1;  menuDy = 0 end
-    if moved ~= 0 then menuSel = ((menuSel - 1 + moved) % n) + 1 end
+    if moved ~= 0 then
+        menuSel = ((menuSel - 1 + moved) % n) + 1
+        snd.menuMove()
+    end
     local sel = selPressed()
-    return sel or tclick > 0
+    if sel or tclick > 0 then snd.menuSel() return true end
+    return false
 end
 
 local function drawMenu(title, entries)
@@ -1625,6 +2004,71 @@ end
 -- raceState; count/race/done share the race tick, because the sim runs
 -- identically through the countdown, the race and the results wait.
 -- ---------------------------------------------------------------------------
+-- Music -------------------------------------------------------------------
+-- OPL FM, on its own synth (see jet.music): it costs no sound-effect voices,
+-- so none of the engine's held layers or the item cues are affected by it.
+--
+-- Tracks are chosen by what the player is DOING, not per state, so walking
+-- between the menu screens does not restart the song every time.
+local MUSIC = {
+    menu = "menu", select = "menu", setup = "menu",
+    itemset = "menu", items = "menu", settings = "menu",
+    count = "race", race = "race",
+    done = "finish",
+}
+
+-- Three race tracks, one picked per race. The MUSIC table above maps a state
+-- to a ROLE ("race"), and the role picks a file -- which is what keeps walking
+-- between menu screens from restarting the menu song while still giving every
+-- race a fresh track.
+local RACE_TRACKS = { "race1", "race2", "race3" }
+
+-- The ROLE currently playing ("menu"/"race"/"finish"), not the filename: the
+-- race role covers three different files.
+local musicNow = nil
+
+-- Balances the tracks against each other; the music setting scales all of
+-- them. The race figure is the only one held back at all, and only a little:
+-- the tracks are normalised to 92% of full scale when they are rendered, so
+-- these start from a loud signal rather than trying to rescue a quiet one.
+local MUSIC_VOL = { menu = 1.0, race = 0.85, finish = 1.0 }
+
+local function musicFor(state)
+    -- Pause holds the song where it is rather than restarting it, and is
+    -- deliberately not in MUSIC: the state it interrupts stays current.
+    if state == "pause" then
+        jet.music.pause(true)
+        return
+    end
+    local want = MUSIC[state]
+    if want == musicNow then
+        if musicNow then jet.music.pause(false) end
+        return
+    end
+    musicNow = want
+    if not want then
+        jet.music.stop()
+        return
+    end
+    -- A new race draws a new track, so three races running are three
+    -- different pieces rather than one loop all session.
+    local file = want
+    if want == "race" then
+        file = RACE_TRACKS[math.random(#RACE_TRACKS)]
+    end
+    -- The per-track figure balances the roles against each other; the setting
+    -- scales all of them.
+    jet.music.volume((MUSIC_VOL[want] or 0.9) * musicVol)
+    -- Everything loops, the finish included: it used to be a one-shot
+    -- fanfare, which left the results screen in silence.
+    --
+    -- The ".mid" here is a BASE NAME, not a file that ships. jet.music.play
+    -- swaps the extension and loads "<name>.adp" -- the pre-rendered,
+    -- compressed loop. Only the .adp are installed; the MIDI is a build
+    -- intermediate (see tools/build_music.sh).
+    jet.music.play(jet.dir .. "/music/" .. file .. ".mid", true)
+end
+
 local tick = {}
 
 -- Main menu: attract flythrough of the current track, ships idle on the
@@ -1672,12 +2116,16 @@ function tick.select(dt)
     -- Left/Right browses from either row, so it never goes dead on BACK.
     if moved ~= 0 then
         selType = ((selType - 1 + moved) % #SHIP_TYPES) + 1
+        snd.menuMove()
     end
     local rowMove = 0
     if pressed(ACT.up) then rowMove = -1 end
     if pressed(ACT.down) then rowMove = 1 end
     if tdy < -6 then rowMove = -1 elseif tdy > 6 then rowMove = 1 end
-    if rowMove ~= 0 then selRow = (selRow == 1) and 2 or 1 end
+    if rowMove ~= 0 then
+        selRow = (selRow == 1) and 2 or 1
+        snd.menuMove()
+    end
     -- Carousel: the picked ship rotates centre stage with its two
     -- neighbours flanking it; the rest are hidden (six in a row would
     -- overflow the frustum at this camera distance).
@@ -1716,6 +2164,7 @@ function tick.select(dt)
         showPreviews(false)
         menuSel = 1
         raceState = "menu"
+        snd.menuBack()
     end
 end
 
@@ -1725,6 +2174,7 @@ function tick.pause(dt)
         local e = PAUSE_MENU[menuSel]
         if e == "RESUME" then
             raceState = pausedFrom
+            snd.unpause()
         elseif e == "RESTART" then
             resetRace(); raceState = "count"
         elseif e == "SETTINGS" then
@@ -1749,7 +2199,10 @@ function tick.settings(dt)
     if pressed(ACT.down) then moved = 1 end
     if menuDy < -6 then moved = -1; menuDy = 0 end
     if menuDy >  6 then moved = 1;  menuDy = 0 end
-    if moved ~= 0 then ctlSel = ((ctlSel - 1 + moved) % 5) + 1 end
+    if moved ~= 0 then
+        ctlSel = ((ctlSel - 1 + moved) % 9) + 1
+        snd.menuMove()
+    end
 
     local adj = 0
     if pressed(ACT.left) then adj = -1 end
@@ -1765,10 +2218,37 @@ function tick.settings(dt)
             keySens = math.max(0.2, math.min(3.0, keySens + adj * 0.2))
         end
     end
-    -- The fps row is a toggle: either direction, or select, flips it.
-    if ctlSel == 4 and (adj ~= 0 or sel) then showFps = not showFps end
+    if adj ~= 0 and ctlSel == 6 then
+        sfxVol = math.max(0.0, math.min(1.0, sfxVol + adj * 0.1))
+    end
+    if adj ~= 0 and ctlSel == 8 then
+        musicVol = math.max(0.0, math.min(1.0, musicVol + adj * 0.1))
+        jet.music.volume((MUSIC_VOL[musicNow] or 0.9) * musicVol)
+    end
 
-    if pressed(ACT.pause) or (sel and ctlSel == 5) then
+    -- Toggle rows take either direction, or select.
+    if ctlSel == 4 and (adj ~= 0 or sel) then showFps = not showFps end
+    if ctlSel == 5 and (adj ~= 0 or sel) then
+        sfxOn = not sfxOn
+        if not sfxOn then
+            -- Silence what is already in flight, engine included. stopall
+            -- takes the music clip with it -- music is a jet_audio voice
+            -- now -- so drop musicNow and let the owner restart it.
+            eng.stop()
+            jet.sound.stopall()
+            musicNow = nil
+        end
+    end
+    if ctlSel == 7 and (adj ~= 0 or sel) then
+        musicOn = not musicOn
+        if not musicOn then
+            musicNow = nil
+            jet.music.stop()
+        end
+    end
+
+    if pressed(ACT.pause) or (sel and ctlSel == 9) then
+        snd.menuBack()
         menuSel = 1
         raceState = settingsFrom
     end
@@ -1785,7 +2265,10 @@ function tick.setup(dt)
     if pressed(ACT.down) then moved = 1 end
     if menuDy < -6 then moved = -1; menuDy = 0 end
     if menuDy >  6 then moved = 1;  menuDy = 0 end
-    if moved ~= 0 then setupSel = ((setupSel - 1 + moved) % 9) + 1 end
+    if moved ~= 0 then
+        setupSel = ((setupSel - 1 + moved) % 9) + 1
+        snd.menuMove()
+    end
     local adj = 0
     if pressed(ACT.left) then adj = -1 end
     if pressed(ACT.right) then adj = 1 end
@@ -1814,10 +2297,12 @@ function tick.setup(dt)
     -- enabled is read at pickup time (rollItem), so it never needs a
     -- rebuild and never touches setupDirty.
     if sel and setupSel == 8 then
+        snd.menuSel()
         itemSel, itemWarnT, raceState = 1, 0, "itemset"
         return
     end
     if pressed(ACT.pause) or (sel and setupSel == 9) then
+        snd.menuBack()
         if setupDirty then
             applyRaceCfg()
             clearRace(); buildRace(); resetRace()
@@ -1841,7 +2326,10 @@ function tick.itemset(dt)
     if menuDy < -6 then moved = -1; menuDy = 0 end
     if menuDy >  6 then moved = 1;  menuDy = 0 end
     local nRow = #ITEMS + 1
-    if moved ~= 0 then itemSel = ((itemSel - 1 + moved) % nRow) + 1 end
+    if moved ~= 0 then
+        itemSel = ((itemSel - 1 + moved) % nRow) + 1
+        snd.menuMove()
+    end
     local sel = selPressed() or tclick > 0
     -- Separate ifs, not an `or` chain: pressed() records the key edge as
     -- a side effect, and short-circuiting would skip that record.
@@ -1854,12 +2342,15 @@ function tick.itemset(dt)
         local it = ITEMS[itemSel]
         if it.on and #itemPool <= 1 then
             itemWarnT = 1.5          -- refuse to empty the pool
+            snd.menuDeny()
         else
             it.on = not it.on
             rebuildItemPool()
+            snd.menuSel()
         end
     end
     if pressed(ACT.pause) or (sel and itemSel == nRow) then
+        snd.menuBack()
         setupSel, raceState = 8, "setup"   -- back onto ITEMS IN PLAY
     end
 end
@@ -1872,6 +2363,7 @@ function tick.items(dt)
     local a = pressed(ACT.pause)
     local b = selPressed()
     if a or b or tclick > 0 then
+        snd.menuBack()
         menuSel, raceState = 1, "menu"
     end
 end
@@ -1880,6 +2372,7 @@ end
 local function tickRace(dt)
     if pressed(ACT.pause) then
         pausedFrom, menuSel, raceState = raceState, 1, "pause"
+        snd.pause()
         return
     end
     if pressed(ACT.restart) then clearRace(); buildRace(); resetRace()
@@ -1889,9 +2382,69 @@ local function tickRace(dt)
 
     local ranked = rankedRacers()
 
+    -- Audio feedback for things happening off-screen. Only while actually
+    -- racing: during the countdown and the results wait none of it applies.
+    if raceState == "race" then
+        local p = racers[1]
+        if p and not p.finishT then
+            -- Position change. Skipped on the first frame (lastPos nil) so
+            -- taking the grid does not announce itself.
+            local pos = 1
+            for i, r in ipairs(ranked) do if r == p then pos = i end end
+            if lastPos and pos ~= lastPos then
+                if pos < lastPos then snd.overtake() else snd.overtaken() end
+            end
+            lastPos = pos
+
+            -- A rival passing close by, with a Doppler-style falling pitch.
+            passCool = passCool - dt
+            if passCool <= 0 and #racers > 1 then
+                for _, r in ipairs(racers) do
+                    if r ~= p then
+                        local dx, dz = r.px - p.px, r.pz - p.pz
+                        -- Close AND moving past: a rival sitting alongside
+                        -- at the same speed is not a pass.
+                        if dx * dx + dz * dz < 9000 * 9000
+                           and math.abs(r.speed - p.speed) > 12000 then
+                            snd.passBy()
+                            passCool = 1.2
+                            break
+                        end
+                    end
+                end
+            end
+
+            -- Incoming homing shot aimed at the player. Mines carry a stale
+            -- s.target from the pool, hence the kind test.
+            local inbound = false
+            for _, sh in ipairs(shots) do
+                if (sh.kind == 1 or sh.kind == 3) and sh.target == p then
+                    inbound = true; break
+                end
+            end
+            if inbound then snd.rocketWarn(dt) end
+
+            -- Shield running out, so it is not a silent surprise.
+            if lastShieldT > 0 and p.shieldT <= 0 then snd.shieldEnd() end
+            lastShieldT = p.shieldT
+
+            if p.wrongT > 0.6 then snd.wrongWay(dt) end
+        end
+    else
+        lastPos = nil
+    end
+
     if raceState == "count" then
+        -- One beep per whole second of the countdown, then GO on the
+        -- transition. ceil() changes exactly once per second, so tracking
+        -- it is enough to fire on the edge.
+        local before = math.ceil(countT)
         countT = countT - dt
-        if countT <= 0 then raceState = "race" end
+        if math.ceil(countT) ~= before and countT > 0 then snd.count() end
+        if countT <= 0 then
+            raceState = "race"
+            snd.go()
+        end
     elseif raceState ~= "done" then
         -- Results only when the WHOLE field is home; finished ships run
         -- passive autopilot until then.
@@ -1951,6 +2504,7 @@ local function tickRace(dt)
                 end
             end
         end
+        rc.thrusting = thrust        -- the engine intake layer needs it
         driveRacer(rc, dt, thrust, turn)
         -- Bank into the ACTUAL smoothed turn rate the same motion the
         -- ship is really making.
@@ -2024,6 +2578,7 @@ local function tickRace(dt)
                            and math.abs(lat) < BOX_LAT
                            and math.abs(rc.py - bx.y) < 4000 then
                             rc.weapon = rollItem()
+                            if rc == racers[1] then snd.pickup() end
                             bx.deadT = 4
                             bx.obj:enabled(false)
                             deadBoxes[#deadBoxes + 1] = bx
@@ -2161,6 +2716,24 @@ function jet.update(dt)
     -- (0xFF), and the main menu's QUIT entry calls jet.quit().
     if dt > 0.25 then dt = 0.25 end
     tick[raceState](dt)
+    -- The engine note is a HELD voice, so it sustains until something
+    -- stops it. Owning it here -- the one place that runs in every state --
+    -- means no exit path can leave it droning under a paused game.
+    if raceState == "race" then
+        local p = racers[1]
+        if p then
+            eng.start()
+            eng.tick(p, VMAX * p.st.top, dt)
+        end
+    else
+        eng.stop()
+    end
+    -- Same reasoning as the engine note above: one owner, in the one place
+    -- that runs in every state, so no exit path can leave a song playing.
+    if musicOn then musicFor(raceState) elseif musicNow then
+        musicNow = nil
+        jet.music.stop()
+    end
 end
 
 -- Per-state draw functions, dispatched exactly like tick.
@@ -2262,16 +2835,21 @@ function draw.settings()
         string.format("roll decay      < %.1f >", trkDecay),
         string.format("keys sens       < %.1f >", keySens),
         string.format("fps readout     < %s >", showFps and "ON" or "OFF"),
+        string.format("effects         < %s >", sfxOn and "ON" or "OFF"),
+        string.format("effects volume  < %d%% >", math.floor(sfxVol * 100 + 0.5)),
+        string.format("music           < %s >", musicOn and "ON" or "OFF"),
+        string.format("music volume    < %d%% >", math.floor(musicVol * 100 + 0.5)),
         "BACK",
     }
+    -- Nine rows at ten pixels: the last lands at 190, clear of the footer.
     for i, e in ipairs(rows) do
         local marker = (i == ctlSel) and "> " or "  "
-        jet.text(84, 108 + i * 12, marker .. e,
+        jet.text(84, 100 + i * 10, marker .. e,
                  (i == ctlSel) and jet.rgb(255, 255, 255)
                                 or jet.rgb(170, 190, 215))
     end
-    -- Clear of the BACK row: the last row sits at 108 + 5*12 = 168.
-    jet.text(31, 190, "up/dn = row   lt/rt = adjust   pause = back",
+    -- Clear of the BACK row, which sits at 100 + 9*10 = 190.
+    jet.text(31, 204, "up/dn = row   lt/rt = adjust   pause = back",
              jet.rgb(150, 170, 195))
 end
 
