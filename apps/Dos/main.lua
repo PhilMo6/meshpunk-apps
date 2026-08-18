@@ -171,6 +171,72 @@ local ACTIONS = {
     { id="rmouse", label="R.Mouse", out=PC.RMOUSE },
 }
 
+-- Touch controller layout (keyboardless boards, and any board once the user
+-- turns touch input on). DOS games split roughly in half over which keys
+-- they read, so there are three presets: arrows, WASD (raw ASCII — the
+-- module is a full keyboard, so a zone can emit any character), and a
+-- keyboard-ish set for menu-driven games. Space/Enter/Ctrl/Alt are the
+-- near-universal action keys. lib/padlayout owns the user's edits — drag,
+-- resize, per-pad off — persisted per app; these are only defaults. The lib
+-- ships with firmware newer than this launcher's min_fw, so it may be absent.
+local pl_ok, padlayout = pcall(require, "lib/padlayout")
+if not pl_ok then padlayout = nil end
+
+-- Raw ASCII the zones emit directly (namespaced: W is the screen width here).
+local ASC = { SPACE = 0x20, ENTER = 0x0D, W = 0x77, A = 0x61, S = 0x73, D = 0x64 }
+
+local pad = padlayout and padlayout.new{
+    app = "Dos",
+    presets = {
+        {
+            name = "Arrows",
+            zones = {
+                { id="up",     out=PC.UP,    label="^",    x=52,  y=118, w=64, h=56 },
+                { id="left",   out=PC.LEFT,  label="<",    x=0,   y=174, w=56, h=66 },
+                { id="down",   out=PC.DOWN,  label="v",    x=56,  y=174, w=60, h=66 },
+                { id="right",  out=PC.RIGHT, label=">",    x=116, y=174, w=56, h=66 },
+                { id="space",  out=ASC.SPACE,    label="SPC",  x=254, y=160, w=66, h=76 },
+                { id="ctrl",   out=PC.CTRL,  label="CTRL", x=188, y=174, w=60, h=62 },
+                { id="alt",    out=PC.ALT,   label="ALT",  x=188, y=110, w=60, h=54 },
+                { id="enter",  out=ASC.ENTER,    label="ENT",  x=114, y=0,   w=58, h=30 },
+                { id="esc",    out=PC.ESC,   label="ESC",  x=56,  y=0,   w=54, h=30 },
+                { id="quit",   out=keybind.QUIT, label="QUIT", x=0, y=0, w=52, h=30 },
+            },
+        },
+        {
+            name = "WASD",
+            zones = {
+                { id="up",     out=ASC.W,        label="W",    x=52,  y=118, w=64, h=56 },
+                { id="left",   out=ASC.A,        label="A",    x=0,   y=174, w=56, h=66 },
+                { id="down",   out=ASC.S,        label="S",    x=56,  y=174, w=60, h=66 },
+                { id="right",  out=ASC.D,        label="D",    x=116, y=174, w=56, h=66 },
+                { id="space",  out=ASC.SPACE,    label="SPC",  x=254, y=160, w=66, h=76 },
+                { id="ctrl",   out=PC.CTRL,  label="CTRL", x=188, y=174, w=60, h=62 },
+                { id="alt",    out=PC.ALT,   label="ALT",  x=188, y=110, w=60, h=54 },
+                { id="enter",  out=ASC.ENTER,    label="ENT",  x=114, y=0,   w=58, h=30 },
+                { id="esc",    out=PC.ESC,   label="ESC",  x=56,  y=0,   w=54, h=30 },
+                { id="quit",   out=keybind.QUIT, label="QUIT", x=0, y=0, w=52, h=30 },
+            },
+        },
+        {
+            name = "Menu",
+            zones = {
+                { id="up",     out=PC.UP,    label="^",    x=52,  y=118, w=64, h=56 },
+                { id="left",   out=PC.LEFT,  label="<",    x=0,   y=174, w=56, h=66 },
+                { id="down",   out=PC.DOWN,  label="v",    x=56,  y=174, w=60, h=66 },
+                { id="right",  out=PC.RIGHT, label=">",    x=116, y=174, w=56, h=66 },
+                { id="enter",  out=ASC.ENTER,    label="ENT",  x=254, y=160, w=66, h=76 },
+                { id="esc",    out=PC.ESC,   label="ESC",  x=188, y=174, w=60, h=62 },
+                { id="tab",    out=PC.TAB,   label="TAB",  x=188, y=110, w=60, h=54 },
+                { id="f1",     out=PC.F1,    label="F1",   x=114, y=0,   w=52, h=30 },
+                { id="f10",    out=PC.F10,   label="F10",  x=170, y=0,   w=56, h=30 },
+                { id="del",    out=PC.DEL,   label="DEL",  x=230, y=0,   w=56, h=30 },
+                { id="quit",   out=keybind.QUIT, label="QUIT", x=0, y=0, w=52, h=30 },
+            },
+        },
+    },
+} or nil
+
 -- Built once the screen helpers below exist; save_config/load_config reach it
 -- as an upvalue.
 local kb
@@ -774,6 +840,10 @@ create_main_screen = function()
                         args[#args + 1] = "-trkball"
                         args[#args + 1] = kb:trkball_string()
                     end
+                    if _elf_touch_layout and pad then
+                        local tl = pad:zones()
+                        if tl then _elf_touch_layout(tl) end
+                    end
                     _launch_elf(table.unpack(args))
                 end
             }
@@ -783,6 +853,17 @@ create_main_screen = function()
         local ctrlBtn = c:Button{ w = lvgl.PCT(48), h = 30 }
         ctrlBtn:Label{ text = "Controls", align = lvgl.ALIGN.CENTER }
         ctrlBtn:onClicked(function() create_controls_screen() end)
+
+        if pad then
+            local touchBtn = c:Button{ w = lvgl.PCT(48), h = 30 }
+            touchBtn:Label{ text = "Touch", align = lvgl.ALIGN.CENTER }
+            touchBtn:onClicked(function()
+                pad:open{
+                    show_screen = show_screen, font = FONT, accent = ACCENT,
+                    on_back = function() create_main_screen() end,
+                }
+            end)
+        end
 
         local setBtn = c:Button{ w = lvgl.PCT(48), h = 30 }
         setBtn:Label{ text = "Settings", align = lvgl.ALIGN.CENTER }

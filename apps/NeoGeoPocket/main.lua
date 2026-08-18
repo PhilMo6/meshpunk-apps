@@ -116,6 +116,30 @@ local ACTIONS = {
     { id="option", label="Option", out=NGP.OPTION, key1="Enter"                },
 }
 
+-- Touch controller layout (keyboardless boards, and any board once the user
+-- turns touch input on). lib/padlayout owns the user's edits — drag, resize,
+-- per-pad off — persisted per app; this is only the default. The lib ships
+-- with firmware newer than this launcher's min_fw, so it may be absent.
+local pl_ok, padlayout = pcall(require, "lib/padlayout")
+if not pl_ok then padlayout = nil end
+
+local pad = padlayout and padlayout.new{
+    app = "NeoGeoPocket",
+    presets = { {
+        name = "Default",
+        zones = {
+            { id="up",     out=NGP.UP,     label="^",   x=52,  y=118, w=64, h=56 },
+            { id="left",   out=NGP.LEFT,   label="<",   x=0,   y=174, w=56, h=66 },
+            { id="down",   out=NGP.DOWN,   label="v",   x=56,  y=174, w=60, h=66 },
+            { id="right",  out=NGP.RIGHT,  label=">",   x=116, y=174, w=56, h=66 },
+            { id="btn_b",  out=NGP.B,      label="B",   x=188, y=174, w=60, h=66 },
+            { id="btn_a",  out=NGP.A,      label="A",   x=254, y=152, w=66, h=66 },
+            { id="option", out=NGP.OPTION, label="OPT", x=120, y=0,   w=58, h=30 },
+            { id="quit",   out=keybind.QUIT, label="QUIT", x=0, y=0,  w=52, h=30 },
+        },
+    } },
+} or nil
+
 -- Built once the screen helpers below exist; save_config/load_config reach it
 -- as an upvalue.
 local kb
@@ -286,6 +310,10 @@ create_main_screen = function()
                         args[#args + 1] = "-keymap"
                         args[#args + 1] = km
                     end
+                    if _elf_touch_layout and pad then
+                        local tl = pad:zones()
+                        if tl then _elf_touch_layout(tl) end
+                    end
                     _launch_elf(table.unpack(args))
                 end
             }
@@ -294,6 +322,17 @@ create_main_screen = function()
         local ctrlBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
         ctrlBtn:Label{ text = "Controls", align = lvgl.ALIGN.CENTER }
         ctrlBtn:onClicked(function() kb:open() end)
+
+        if pad then
+            local touchBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+            touchBtn:Label{ text = "Touch", align = lvgl.ALIGN.CENTER }
+            touchBtn:onClicked(function()
+                pad:open{
+                    show_screen = show_screen, font = FONT, accent = ACCENT,
+                    on_back = function() create_main_screen() end,
+                }
+            end)
+        end
 
         local setBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
         setBtn:Label{ text = "Settings", align = lvgl.ALIGN.CENTER }

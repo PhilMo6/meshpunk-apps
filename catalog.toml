@@ -20,7 +20,7 @@
 
 [meta]
 version = 1
-updated = "2026-07-19"
+updated = "2026-08-17"
 
 # ── Download-only apps (not shipped in firmware) ─────────────────────────────
 
@@ -28,101 +28,102 @@ updated = "2026-07-19"
 id = "Doom"
 name = "Doom"
 author = "PhilMo6"
-version = "1.1.0"
+version = "1.2.0"
 type = "elf"
 description = "The classic FPS, running native"
 category = "Games"
 min_fw = 8
-files = ["main.lua", "doom.app.elf"]
+files = ["readme.lua", "main.lua", "doom.app.elf"]
 
 [[apps]]
 id = "Nes"
 name = "Nes"
 author = "PhilMo6"
-version = "1.1.0"
+version = "1.2.0"
 type = "elf"
 description = "NES emulator (Nofrendo)"
 category = "Games"
 min_fw = 8
-files = ["main.lua", "nes.app.elf"]
+files = ["readme.lua", "main.lua", "nes.app.elf"]
 
 [[apps]]
 id = "Snes"
 name = "Snes"
 author = "PhilMo6"
-version = "1.2.0"
+version = "1.3.0"
 type = "elf"
 description = "SNES emulator (Snes9x) with battery saves"
 category = "Games"
 min_fw = 8
-files = ["main.lua", "snes.app.elf"]
+files = ["readme.lua", "main.lua", "snes.app.elf"]
 
 [[apps]]
 id = "GameBoy"
 name = "GameBoy"
 author = "PhilMo6"
-version = "1.3.0"
+version = "1.4.0"
 type = "elf"
 description = "Game Boy emulator (gnuboy) with T-Deck link cable"
 category = "Games"
 min_fw = 8
 drivers = ["tdeck"]
-files = ["main.lua", "gameboy.app.elf"]
+files = ["readme.lua", "main.lua", "gameboy.app.elf"]
 
 [[apps]]
 id = "NeoGeoPocket"
 name = "NeoGeoPocket"
 author = "PhilMo6"
-version = "1.1.0"
+version = "1.2.0"
 type = "elf"
 description = "Neo Geo Pocket emulator (RACE)"
 category = "Games"
 min_fw = 8
-files = ["main.lua", "ngpc.app.elf"]
+files = ["readme.lua", "main.lua", "ngpc.app.elf"]
 
 [[apps]]
 id = "Sega8"
 name = "Sega8"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.1.0"
 type = "elf"
 description = "Game Gear, Master System and SG-1000 emulator (SMS Plus)"
 category = "Games"
 min_fw = 8
-files = ["main.lua", "sega8.app.elf"]
+files = ["readme.lua", "main.lua", "sega8.app.elf"]
 
 [[apps]]
 id = "Genesis"
 name = "Genesis"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.1.0"
 type = "elf"
 description = "Sega Genesis / Mega Drive emulator (Gwenesis) with battery saves"
 category = "Games"
 min_fw = 8
-files = ["main.lua", "genesis.app.elf"]
+files = ["readme.lua", "main.lua", "genesis.app.elf"]
 
 [[apps]]
 id = "PICO-8"
 name = "PICO-8"
 author = "PhilMo6"
-version = "1.1.0"
+version = "1.2.0"
 type = "elf"
 description = "PICO-8 fantasy console player"
 category = "Games"
 min_fw = 8
-files = ["main.lua", "pico8.app.elf"]
+files = ["readme.lua", "main.lua", "pico8.app.elf"]
 
 [[apps]]
 id = "Dos"
 name = "Dos"
 author = "PhilMo6"
-version = "1.1.0"
+version = "1.2.0"
 type = "elf"
 description = "386 DOS emulator: VGA, Adlib, Sound Blaster, PS/2 mouse"
 category = "Games"
 min_fw = 8
 files = [
+  "readme.lua",
   "main.lua",
   "dos.app.elf",
   "bios.bin",
@@ -133,32 +134,46 @@ files = [
 id = "Music"
 name = "Music"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.1"
 type = "lua"
 description = "MP3 player with library, tags and background playback"
-files = ["main.lua"]
+files = ["readme.lua", "main.lua"]
 
 [[apps]]
 id = "Gamepad"
 name = "Gamepad"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.1"
 type = "lua"
 description = "Map a USB gamepad to T-Deck controls for any game"
 category = "Games"
 min_fw = 2
 drivers = ["gamepad"]
-files = ["main.lua"]
+files = ["readme.lua", "main.lua"]
 
 [[apps]]
 id = "Code_Editor"
 name = "Code Editor"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.1"
 type = "lua"
 description = "On-device Lua code editor"
 category = "Tools"
-files = ["main.lua"]
+files = ["readme.lua", "main.lua"]
+
+# min_fw 9 is graceful, not mandatory: without _touch_raw the markers and
+# on-screen coordinates still work and only the panel-side raw readout goes
+# blank. Gated anyway because that readout is the reason to install it.
+[[apps]]
+id = "Touch_Test"
+name = "Touch Test"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Touch panel diagnostic — live, touchdown and lift markers with coordinates"
+category = "Tools"
+min_fw = 9
+files = ["readme.lua", "main.lua"]
 
 # Games live in subfolders of the app (games/<name>/main.lua), so this entry
 # downloads into a nested path — keep every game's folder name URL-safe, the
@@ -167,12 +182,13 @@ files = ["main.lua"]
 id = "Jet_3D"
 name = "Jet 3D"
 author = "PhilMo6"
-version = "1.1.0"
+version = "1.2.0"
 type = "elf"
 description = "A software 3D engine with lua powered games"
 category = "Games"
 min_fw = 8
 files = [
+  "readme.lua",
   "main.lua",
   "jet3d.app.elf",
   "games/skyloopers/main.lua",
@@ -189,56 +205,58 @@ files = [
 id = "App_Library"
 name = "App Library"
 author = "PhilMo6"
-version = "1.0.2"
+version = "1.0.3"
 type = "lua"
 locked = true
 description = "This app — browse and install apps and themes"
-files = ["main.lua"]
+files = ["readme.lua", "main.lua"]
 
 [[apps]]
 id = "Map"
 name = "Map"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.1"
 type = "lua"
 locked = true
 description = "Offline tile map with mesh overlays"
-files = ["main.lua"]
+files = ["readme.lua", "main.lua"]
 
 [[apps]]
 id = "Messenger"
 name = "Messenger"
 author = "PhilMo6"
-version = "1.1.0"
+version = "1.1.1"
 type = "lua"
 locked = true
 description = "MeshCore LoRa messenger"
-files = ["main.lua"]
+files = ["readme.lua", "main.lua"]
 min_fw = 5
 
 [[apps]]
 id = "Read_Me"
 name = "Read Me"
 author = "PhilMo6"
-version = "1.0.4"
+version = "1.0.5"
 type = "lua"
 description = "On-device user guide"
-files = ["main.lua"]
-# Held at 3 (the USB-drive-mode level) even though the guide now also covers
-# higher-level apps such as Dos: the guide is text only, so a page about an
-# app you don't have is harmless, while a higher gate would hide the whole
-# guide from firmware that still benefits from it.
-min_fw = 3
+files = ["readme.lua", "main.lua"]
+# 9 is MANDATORY, not graceful: the guide is now a viewer over lib/helpdocs
+# (sandboxed page discovery, _input_caps-aware pages), required at load with
+# no fallback — on older firmware the app dies at require. The old text-only
+# guide those devices already have keeps working; they just aren't offered
+# this version.
+min_fw = 9
 
 [[apps]]
 id = "Flappy_Bird"
 name = "Flappy Bird"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.1.0"
 type = "lua"
 description = "Flappy Bird clone"
 category = "Games"
 files = [
+  "readme.lua",
   "main.lua",
   "bg_day.png",
   "bird1.png",
@@ -259,21 +277,21 @@ files = [
 id = "Scorched_Earth"
 name = "Scorched Earth"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.1.0"
 type = "lua"
 description = "Artillery duel classic"
 category = "Games"
-files = ["main.lua"]
+files = ["readme.lua", "main.lua"]
 
 [[apps]]
 id = "Snake"
 name = "Snake"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.1.0"
 type = "lua"
 description = "Classic snake game"
 category = "Games"
-files = ["main.lua"]
+files = ["readme.lua", "main.lua"]
 
 [[apps]]
 id = "Calculator"
@@ -296,6 +314,20 @@ description = "File manager for internal flash and SD"
 category = "Tools"
 files = ["main.lua"]
 
+# min_fw 9 is MANDATORY, not graceful: the viewer is built on firmware's
+# lib/imgview.lua and the _img_* bridge (_img_open/_img_scale/_img_close),
+# neither of which exists before this level — on level 8 it fails at require.
+[[apps]]
+id = "Images"
+name = "Images"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Image viewer with fit and 1:1 pan — PNG, JPEG and RGB565 .bin"
+category = "Tools"
+min_fw = 9
+files = ["main.lua"]
+
 [[apps]]
 id = "Notes"
 name = "Notes"
@@ -312,41 +344,41 @@ files = ["main.lua"]
 id = "Packets"
 name = "Packets"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.1"
 type = "lua"
 description = "Live raw radio packet monitor with CSV capture"
 category = "Tools"
 min_fw = 8
-files = ["main.lua"]
+files = ["readme.lua", "main.lua"]
 
 [[apps]]
 id = "USB_Host"
 name = "USB Host"
 author = "PhilMo6"
-version = "1.1.0"
+version = "1.1.1"
 type = "lua"
 description = "USB host tools and driver manager"
 category = "Tools"
 min_fw = 2
-files = ["main.lua"]
+files = ["readme.lua", "main.lua"]
 
 [[apps]]
 id = "USB_Drive"
 name = "USB Drive"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.1"
 type = "lua"
 description = "Share the SD card with a PC as a USB thumb drive"
 category = "Tools"
 # Needs the _usbdrive_* bindings (firmware API level 3).
 min_fw = 3
-files = ["main.lua"]
+files = ["readme.lua", "main.lua"]
 
 [[apps]]
 id = "Device"
 name = "Device"
 author = "PhilMo6"
-version = "1.1.0"
+version = "1.2.0"
 type = "lua"
 description = "Device settings"
 locked = true
@@ -429,7 +461,7 @@ files = ["main.lua"]
 id = "Theme"
 name = "Theme"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.1"
 type = "lua"
 description = "UI theme picker and theme downloads"
 locked = true
@@ -440,7 +472,7 @@ files = ["main.lua"]
 id = "Wireless"
 name = "Wireless"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.1.0"
 type = "lua"
 description = "WiFi and Bluetooth settings"
 locked = true

@@ -122,6 +122,34 @@ Themes contribute the same way under `themes/<id>/` with a `[[themes]]` entry.
   (filesystem, WiFi, LoRa radio) — PRs are reviewed with that in mind.
 - ELF apps are native binaries with full hardware access and get extra review scrutiny.
 
+### Shipping a help page (optional)
+
+An app can carry its own page in the on-device guide (Read Me → Apps tab) by adding a
+`readme.lua` next to its `main.lua` — and listing it in the catalog `files` array, or it
+is never downloaded. The file returns a table with a `body` string; the page's title is
+the app's `name` automatically:
+
+```lua
+local caps = ...   -- { keyboard, trackball, touch, kbd_backlight }; a second
+                   -- arg carries { name, audio, screen_w, screen_h }
+
+local body = [[
+What the app does, where its files go, default keys.
+]]
+
+if not caps.keyboard then
+  body = body .. "\n\nTouch-specific instructions here."
+end
+
+return { body = body }
+```
+
+Pages run sandboxed (no io/os/require/firmware bindings — needs firmware API level 9's
+guide; older firmware simply never loads them) with device capabilities passed in as
+arguments, so write plain text and branch on `caps` rather than probing the system.
+Text tips: no space-aligned columns (the guide renders a proportional font — use
+`name - value` lines), and keep it to what a user needs: files, settings, controls.
+
 ## Trust model
 
 Everything here is curated via PR review. There is no code signing (yet) — devices trust

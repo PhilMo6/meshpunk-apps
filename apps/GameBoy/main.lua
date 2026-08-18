@@ -3,6 +3,10 @@ local apps = require("lib/apps")
 local nav = require("lib/nav")
 local fileman = require("lib/fileman")
 local keybind = require("lib/keybind")
+-- Touch controller layouts (keyboardless boards) — the lib ships with
+-- firmware newer than this launcher's min_fw, so it may be absent.
+local pl_ok, padlayout = pcall(require, "lib/padlayout")
+if not pl_ok then padlayout = nil end
 
 local app_dir = ...
 
@@ -242,6 +246,27 @@ kb = keybind.new{
 -- Label + cycling value button, persisted (see lib/keybind).
 local setting_row = keybind.rows{ font = FONT, on_save = save_config }
 
+-- Touch controller layout: the default preset is the hardware-proven P3
+-- geometry. lib/padlayout owns the user's edits (drag/size/per-pad off,
+-- persisted per app); pad:zones() resolves them at launch.
+local pad = padlayout and padlayout.new{
+    app = "GameBoy",
+    presets = { {
+        name = "Default",
+        zones = {
+            { id = "up",     out = GB.UP,     label = "^",    x = 52,  y = 118, w = 64, h = 56 },
+            { id = "left",   out = GB.LEFT,   label = "<",    x = 0,   y = 174, w = 56, h = 66 },
+            { id = "down",   out = GB.DOWN,   label = "v",    x = 56,  y = 174, w = 60, h = 66 },
+            { id = "right",  out = GB.RIGHT,  label = ">",    x = 116, y = 174, w = 56, h = 66 },
+            { id = "a",      out = GB.A,      label = "A",    x = 254, y = 152, w = 66, h = 66 },
+            { id = "b",      out = GB.B,      label = "B",    x = 188, y = 174, w = 60, h = 66 },
+            { id = "start",  out = GB.START,  label = "STRT", x = 120, y = 0,   w = 58, h = 30 },
+            { id = "select", out = GB.SELECT, label = "SEL",  x = 184, y = 0,   w = 58, h = 30 },
+            { id = "quit",   out = keybind.QUIT, label = "QUIT", x = 0, y = 0,  w = 52, h = 30 },
+        },
+    } },
+} or nil
+
 -- ============================================================
 -- Main screen
 -- ============================================================
@@ -342,6 +367,13 @@ create_main_screen = function()
                         args[#args + 1] = "-keymap"
                         args[#args + 1] = km
                     end
+                    -- Touch controller layout (keyboardless boards): binding
+                    -- and lib are both feature-checked — this launcher also
+                    -- runs on firmware that predates them.
+                    if _elf_touch_layout and pad then
+                        local tl = pad:zones()
+                        if tl then _elf_touch_layout(tl) end
+                    end
                     _launch_elf(table.unpack(args))
                 end
             }
@@ -350,6 +382,17 @@ create_main_screen = function()
         local ctrlBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
         ctrlBtn:Label{ text = "Controls", align = lvgl.ALIGN.CENTER }
         ctrlBtn:onClicked(function() kb:open() end)
+
+        if pad then
+            local touchBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+            touchBtn:Label{ text = "Touch", align = lvgl.ALIGN.CENTER }
+            touchBtn:onClicked(function()
+                pad:open{
+                    show_screen = show_screen, font = FONT, accent = ACCENT,
+                    on_back = function() create_main_screen() end,
+                }
+            end)
+        end
 
         local setBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
         setBtn:Label{ text = "Settings", align = lvgl.ALIGN.CENTER }

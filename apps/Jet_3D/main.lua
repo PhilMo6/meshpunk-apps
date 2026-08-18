@@ -223,6 +223,32 @@ kb = keybind.new{
     on_save = save_config,
 }
 
+-- Touch controller layout (keyboardless boards, and any board once the user
+-- turns touch input on). Zone outs are the same game ACTION codes the
+-- keymap produces (0xA0..0xA7), so touch and keys reach games identically.
+-- lib/padlayout owns the user's edits — drag, resize, per-pad off —
+-- persisted per app; this is only the default. The lib ships with firmware
+-- newer than this launcher's min_fw, so it may be absent.
+local pl_ok, padlayout = pcall(require, "lib/padlayout")
+if not pl_ok then padlayout = nil end
+
+local pad = padlayout and padlayout.new{
+    app = "Jet_3D",
+    presets = { {
+        name = "Default",
+        zones = {
+            { id="up",      out=0xA0, label="^",    x=52,  y=118, w=64, h=56 },
+            { id="left",    out=0xA2, label="<",    x=0,   y=174, w=56, h=66 },
+            { id="down",    out=0xA1, label="v",    x=56,  y=174, w=60, h=66 },
+            { id="right",   out=0xA3, label=">",    x=116, y=174, w=56, h=66 },
+            { id="thrust",  out=0xA4, label="GO",   x=254, y=160, w=66, h=76 },
+            { id="pause",   out=0xA6, label="PAUS", x=120, y=0,   w=62, h=30 },
+            { id="restart", out=0xA7, label="RST",  x=186, y=0,   w=56, h=30 },
+            { id="quit",    out=keybind.QUIT, label="QUIT", x=0, y=0, w=52, h=30 },
+        },
+    } },
+} or nil
+
 -- ============================================================
 -- Main screen
 -- ============================================================
@@ -285,6 +311,10 @@ create_main_screen = function()
                             args[#args + 1] = "-keymap"
                             args[#args + 1] = km
                         end
+                        if _elf_touch_layout and pad then
+                            local tl = pad:zones()
+                            if tl then _elf_touch_layout(tl) end
+                        end
                         _launch_elf(table.unpack(args))
                     end
                 }
@@ -294,6 +324,17 @@ create_main_screen = function()
         local ctrlBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
         ctrlBtn:Label{ text = "Controls", align = lvgl.ALIGN.CENTER }
         ctrlBtn:onClicked(function() create_controls_screen() end)
+
+        if pad then
+            local touchBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+            touchBtn:Label{ text = "Touch", align = lvgl.ALIGN.CENTER }
+            touchBtn:onClicked(function()
+                pad:open{
+                    show_screen = show_screen, font = FONT, accent = ACCENT,
+                    on_back = function() create_main_screen() end,
+                }
+            end)
+        end
 
         local aboutBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
         aboutBtn:Label{ text = "About", align = lvgl.ALIGN.CENTER }

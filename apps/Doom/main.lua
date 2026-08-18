@@ -124,6 +124,57 @@ local ACTIONS = {
     { id="wp9",     label="Weapon 9",     out=0x39,       key1="g"                    },
 }
 
+-- Touch controller layout (keyboardless boards, and any board once the user
+-- turns touch input on). Doom has far more actions than fit one screen, so
+-- the two presets split them: "Play" turns with the d-pad and keeps fire /
+-- use / run to hand, "Strafe" puts strafing on the d-pad and turning up top.
+-- Weapon keys are deliberately absent — add them in the editor if wanted.
+-- lib/padlayout owns the user's edits (drag, resize, per-pad off), persisted
+-- per app; these are only defaults. The lib ships with firmware newer than
+-- this launcher's min_fw, so it may be absent.
+local pl_ok, padlayout = pcall(require, "lib/padlayout")
+if not pl_ok then padlayout = nil end
+
+local pad = padlayout and padlayout.new{
+    app = "Doom",
+    presets = {
+        {
+            name = "Play",
+            zones = {
+                { id="fwd",    out=DK.UP,      label="^",    x=52,  y=118, w=64, h=56 },
+                { id="tleft",  out=DK.LEFT,    label="<",    x=0,   y=174, w=56, h=66 },
+                { id="back",   out=DK.DOWN,    label="v",    x=56,  y=174, w=60, h=66 },
+                { id="tright", out=DK.RIGHT,   label=">",    x=116, y=174, w=56, h=66 },
+                { id="fire",   out=DK.FIRE,    label="FIRE", x=254, y=160, w=66, h=76 },
+                { id="use",    out=DK.USE,     label="USE",  x=188, y=174, w=60, h=62 },
+                { id="run",    out=DK.RUN,     label="RUN",  x=188, y=110, w=60, h=54 },
+                { id="sleft",  out=DK.STRAFEL, label="SL",   x=176, y=0,   w=50, h=30 },
+                { id="sright", out=DK.STRAFER, label="SR",   x=230, y=0,   w=50, h=30 },
+                { id="esc",    out=DK.ESCAPE,  label="ESC",  x=56,  y=0,   w=54, h=30 },
+                { id="enter",  out=DK.ENTER,   label="OK",   x=114, y=0,   w=58, h=30 },
+                { id="quit",   out=keybind.QUIT, label="QUIT", x=0, y=0,   w=52, h=30 },
+            },
+        },
+        {
+            name = "Strafe",
+            zones = {
+                { id="fwd",    out=DK.UP,      label="^",    x=52,  y=118, w=64, h=56 },
+                { id="sleft",  out=DK.STRAFEL, label="<",    x=0,   y=174, w=56, h=66 },
+                { id="back",   out=DK.DOWN,    label="v",    x=56,  y=174, w=60, h=66 },
+                { id="sright", out=DK.STRAFER, label=">",    x=116, y=174, w=56, h=66 },
+                { id="fire",   out=DK.FIRE,    label="FIRE", x=254, y=160, w=66, h=76 },
+                { id="use",    out=DK.USE,     label="USE",  x=188, y=174, w=60, h=62 },
+                { id="run",    out=DK.RUN,     label="RUN",  x=188, y=110, w=60, h=54 },
+                { id="tleft",  out=DK.LEFT,    label="TL",   x=176, y=0,   w=50, h=30 },
+                { id="tright", out=DK.RIGHT,   label="TR",   x=230, y=0,   w=50, h=30 },
+                { id="esc",    out=DK.ESCAPE,  label="ESC",  x=56,  y=0,   w=54, h=30 },
+                { id="enter",  out=DK.ENTER,   label="OK",   x=114, y=0,   w=58, h=30 },
+                { id="quit",   out=keybind.QUIT, label="QUIT", x=0, y=0,   w=52, h=30 },
+            },
+        },
+    },
+} or nil
+
 -- Built once the screen helpers below exist; save_config/load_config reach it
 -- as an upvalue.
 local kb
@@ -415,6 +466,10 @@ create_main_screen = function()
                     end
                     args[#args + 1] = "-trkball"
                     args[#args + 1] = kb:trkball_string()
+                    if _elf_touch_layout and pad then
+                        local tl = pad:zones()
+                        if tl then _elf_touch_layout(tl) end
+                    end
                     -- Deferred launch: the firmware tears Lua down, runs Doom, then
                     -- recreates Lua and returns to the launcher home. _launch_elf only
                     -- queues the request, so there's no result to handle here.
@@ -426,6 +481,17 @@ create_main_screen = function()
         local ctrlBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
         ctrlBtn:Label{ text = "Controls", align = lvgl.ALIGN.CENTER }
         ctrlBtn:onClicked(function() kb:open() end)
+
+        if pad then
+            local touchBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+            touchBtn:Label{ text = "Touch", align = lvgl.ALIGN.CENTER }
+            touchBtn:onClicked(function()
+                pad:open{
+                    show_screen = show_screen, font = FONT, accent = ACCENT,
+                    on_back = function() create_main_screen() end,
+                }
+            end)
+        end
 
         local quitBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
         quitBtn:Label{ text = "Quit", align = lvgl.ALIGN.CENTER }

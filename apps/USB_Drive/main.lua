@@ -5,7 +5,7 @@
 -- (nothing may write the volume the PC owns), and USB serial is off (the OTG
 -- side owns the pins). Stop — or closing this app by any path — disconnects,
 -- remounts the card and resumes the mesh; the C-side watchdog force-stops if
--- this app dies without cleanup. After a session USB HOST mode (Tools > USB)
+-- this app dies without cleanup. After a session USB HOST mode (Tools > USB Host)
 -- needs a reboot: the device stack has no uninstall.
 local lvgl  = require("lvgl")
 local apps  = require("lib/apps")
@@ -105,7 +105,7 @@ start_btn:onClicked(function()
     else
         local why = _usbdrive_status().fail
         status:set { text = "Can't start: " .. (why ~= "" and why or "unknown") ..
-            (why == "USB host mode is running" and "\nStop it in Tools > USB first." or "") }
+            (why == "USB host mode is running" and "\nStop it in Tools > USB Host first." or "") }
     end
 end)
 

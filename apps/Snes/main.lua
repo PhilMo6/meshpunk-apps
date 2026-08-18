@@ -86,6 +86,37 @@ local ACTIONS = {
     { id="select", label="Select", out=SNES.SELECT, key1="BkSpc"                },
 }
 
+-- Touch controller layout (keyboardless boards, and any board once the user
+-- turns touch input on). The four face buttons keep the console's diamond
+-- (Y left, X top, B bottom, A right) and the shoulders share the top strip
+-- with Start/Select. lib/padlayout owns the user's edits — drag, resize,
+-- per-pad off — persisted per app, so this is only the default. The lib
+-- ships with firmware newer than this launcher's min_fw, so it may be absent.
+local pl_ok, padlayout = pcall(require, "lib/padlayout")
+if not pl_ok then padlayout = nil end
+
+local pad = padlayout and padlayout.new{
+    app = "Snes",
+    presets = { {
+        name = "Default",
+        zones = {
+            { id="up",     out=SNES.UP,     label="^",    x=52,  y=118, w=64, h=56 },
+            { id="left",   out=SNES.LEFT,   label="<",    x=0,   y=174, w=56, h=66 },
+            { id="down",   out=SNES.DOWN,   label="v",    x=56,  y=174, w=60, h=66 },
+            { id="right",  out=SNES.RIGHT,  label=">",    x=116, y=174, w=56, h=66 },
+            { id="btn_y",  out=SNES.Y,      label="Y",    x=176, y=182, w=46, h=46 },
+            { id="btn_x",  out=SNES.X,      label="X",    x=228, y=136, w=46, h=46 },
+            { id="btn_b",  out=SNES.B,      label="B",    x=228, y=190, w=46, h=46 },
+            { id="btn_a",  out=SNES.A,      label="A",    x=276, y=164, w=44, h=46 },
+            { id="btn_l",  out=SNES.L,      label="L",    x=54,  y=0,   w=50, h=30 },
+            { id="btn_r",  out=SNES.R,      label="R",    x=106, y=0,   w=50, h=30 },
+            { id="select", out=SNES.SELECT, label="SEL",  x=158, y=0,   w=54, h=30 },
+            { id="start",  out=SNES.START,  label="STRT", x=214, y=0,   w=56, h=30 },
+            { id="quit",   out=keybind.QUIT, label="QUIT", x=0, y=0,    w=52, h=30 },
+        },
+    } },
+} or nil
+
 -- Built once the screen helpers below exist; save_config/load_config reach it
 -- as an upvalue.
 local kb
@@ -233,6 +264,10 @@ local function launch_now()
                 args[#args + 1] = "-keymap"
                 args[#args + 1] = km
             end
+            if _elf_touch_layout and pad then
+                local tl = pad:zones()
+                if tl then _elf_touch_layout(tl) end
+            end
             _launch_elf(table.unpack(args))
         end
     }
@@ -336,6 +371,17 @@ create_main_screen = function()
         local ctrlBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
         ctrlBtn:Label{ text = "Controls", align = lvgl.ALIGN.CENTER }
         ctrlBtn:onClicked(function() kb:open() end)
+
+        if pad then
+            local touchBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+            touchBtn:Label{ text = "Touch", align = lvgl.ALIGN.CENTER }
+            touchBtn:onClicked(function()
+                pad:open{
+                    show_screen = show_screen, font = FONT, accent = ACCENT,
+                    on_back = function() create_main_screen() end,
+                }
+            end)
+        end
 
         local helpBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
         helpBtn:Label{ text = "Quit help", align = lvgl.ALIGN.CENTER }

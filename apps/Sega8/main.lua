@@ -95,6 +95,31 @@ local ACTIONS = {
     { id="pause",  label="Pause",  out=GG.PAUSE, key1="BkSpc"                },
 }
 
+-- Touch controller layout (keyboardless boards, and any board once the user
+-- turns touch input on). lib/padlayout owns the user's edits — drag, resize,
+-- per-pad off — persisted per app; this is only the default. The lib ships
+-- with firmware newer than this launcher's min_fw, so it may be absent.
+local pl_ok, padlayout = pcall(require, "lib/padlayout")
+if not pl_ok then padlayout = nil end
+
+local pad = padlayout and padlayout.new{
+    app = "Sega8",
+    presets = { {
+        name = "Default",
+        zones = {
+            { id="up",    out=GG.UP,    label="^",    x=52,  y=118, w=64, h=56 },
+            { id="left",  out=GG.LEFT,  label="<",    x=0,   y=174, w=56, h=66 },
+            { id="down",  out=GG.DOWN,  label="v",    x=56,  y=174, w=60, h=66 },
+            { id="right", out=GG.RIGHT, label=">",    x=116, y=174, w=56, h=66 },
+            { id="btn_1", out=GG.BTN1,  label="1",    x=188, y=174, w=60, h=66 },
+            { id="btn_2", out=GG.BTN2,  label="2",    x=254, y=152, w=66, h=66 },
+            { id="start", out=GG.START, label="STRT", x=120, y=0,   w=58, h=30 },
+            { id="pause", out=GG.PAUSE, label="PAU",  x=184, y=0,   w=58, h=30 },
+            { id="quit",  out=keybind.QUIT, label="QUIT", x=0, y=0, w=52, h=30 },
+        },
+    } },
+} or nil
+
 -- Built once the screen helpers below exist; save_config/load_config reach it
 -- as an upvalue.
 local kb
@@ -222,6 +247,10 @@ local function launch_now()
                 args[#args + 1] = "-keymap"
                 args[#args + 1] = km
             end
+            if _elf_touch_layout and pad then
+                local tl = pad:zones()
+                if tl then _elf_touch_layout(tl) end
+            end
             _launch_elf(table.unpack(args))
         end
     }
@@ -344,6 +373,17 @@ create_main_screen = function()
         local ctrlBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
         ctrlBtn:Label{ text = "Controls", align = lvgl.ALIGN.CENTER }
         ctrlBtn:onClicked(function() kb:open() end)
+
+        if pad then
+            local touchBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+            touchBtn:Label{ text = "Touch", align = lvgl.ALIGN.CENTER }
+            touchBtn:onClicked(function()
+                pad:open{
+                    show_screen = show_screen, font = FONT, accent = ACCENT,
+                    on_back = function() create_main_screen() end,
+                }
+            end)
+        end
 
         local helpBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
         helpBtn:Label{ text = "Quit help", align = lvgl.ALIGN.CENTER }
