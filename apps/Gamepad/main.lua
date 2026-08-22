@@ -187,8 +187,8 @@ end
 -- Parse conf-format text into a fresh rules array + dropped-line count.
 local function parse_conf_text(txt)
     local out, dropped = {}, 0
-    for line in txt:gmatch("[^\n]+") do
-        line = line:match("^%s*(.-)%s*$")
+    for raw in txt:gmatch("[^\n]+") do
+        local line = raw:match("^%s*(.-)%s*$")
         if line ~= "" and line:sub(1, 1) ~= "#" then
             local r = parse_line(line)
             if r then

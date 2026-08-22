@@ -20,7 +20,7 @@
 
 [meta]
 version = 1
-updated = "2026-08-17"
+updated = "2026-08-21"
 
 # ── Download-only apps (not shipped in firmware) ─────────────────────────────
 
@@ -143,7 +143,7 @@ files = ["readme.lua", "main.lua"]
 id = "Gamepad"
 name = "Gamepad"
 author = "PhilMo6"
-version = "1.0.1"
+version = "1.0.2"
 type = "lua"
 description = "Map a USB gamepad to T-Deck controls for any game"
 category = "Games"
@@ -161,9 +161,6 @@ description = "On-device Lua code editor"
 category = "Tools"
 files = ["readme.lua", "main.lua"]
 
-# min_fw 9 is graceful, not mandatory: without _touch_raw the markers and
-# on-screen coordinates still work and only the panel-side raw readout goes
-# blank. Gated anyway because that readout is the reason to install it.
 [[apps]]
 id = "Touch_Test"
 name = "Touch Test"
@@ -240,11 +237,6 @@ version = "1.0.5"
 type = "lua"
 description = "On-device user guide"
 files = ["readme.lua", "main.lua"]
-# 9 is MANDATORY, not graceful: the guide is now a viewer over lib/helpdocs
-# (sandboxed page discovery, _input_caps-aware pages), required at load with
-# no fallback — on older firmware the app dies at require. The old text-only
-# guide those devices already have keeps working; they just aren't offered
-# this version.
 min_fw = 9
 
 [[apps]]
@@ -314,9 +306,6 @@ description = "File manager for internal flash and SD"
 category = "Tools"
 files = ["main.lua"]
 
-# min_fw 9 is MANDATORY, not graceful: the viewer is built on firmware's
-# lib/imgview.lua and the _img_* bridge (_img_open/_img_scale/_img_close),
-# neither of which exists before this level — on level 8 it fails at require.
 [[apps]]
 id = "Images"
 name = "Images"
@@ -338,8 +327,6 @@ description = "Quick notes"
 category = "Tools"
 files = ["main.lua"]
 
-# min_fw 8 is MANDATORY, not graceful: the app drains the C capture ring via
-# _mesh_pkt_capture/_mesh_pkt_poll, which do not exist before this level.
 [[apps]]
 id = "Packets"
 name = "Packets"
@@ -389,6 +376,18 @@ files = ["main.lua"]
 min_fw = 7
 
 [[apps]]
+id = "Power"
+name = "Power"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Standby, power off, restart and auto-standby"
+locked = true
+category = "Settings"
+files = ["main.lua"]
+min_fw = 10
+
+[[apps]]
 id = "Emoji"
 name = "Emoji"
 author = "PhilMo6"
@@ -398,8 +397,6 @@ description = "Emoji settings"
 locked = true
 category = "Settings"
 files = ["main.lua"]
-# 1.1.0 uses the shared picker (lib/emoji_popup, hex search included) — the
-# lib + _emoji_popup_insert shipped at firmware API level 2.
 min_fw = 2
 
 [[apps]]
