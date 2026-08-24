@@ -20,7 +20,7 @@
 
 [meta]
 version = 1
-updated = "2026-08-21"
+updated = "2026-08-24"
 
 # ── Download-only apps (not shipped in firmware) ─────────────────────────────
 
@@ -336,6 +336,17 @@ type = "lua"
 description = "Live raw radio packet monitor with CSV capture"
 category = "Tools"
 min_fw = 8
+files = ["readme.lua", "main.lua"]
+
+[[apps]]
+id = "Screenshot"
+name = "Screenshot"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Screen capture to PNG — from any app, and from inside games"
+category = "Tools"
+min_fw = 11
 files = ["readme.lua", "main.lua"]
 
 [[apps]]
