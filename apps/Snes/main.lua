@@ -48,6 +48,53 @@ local CFG_PATH = app_dir .. "/launcher.cfg"
 local ELF_PATH = find_file(ELF_NAME)
 
 -- ============================================================
+-- Coprocessor pre-flight: carts that need a chip the emulator does not
+-- implement. Reads the first 66KB and checks every header candidate
+-- (LoROM/HiROM, each with and without a 512-byte copier header), keeping
+-- only candidates whose checksum + complement pair validates, so garbage
+-- can't false-positive. Returns the chip's name, or nil to launch.
+-- memmap.c in the module refuses the same set (serial-only backstop that
+-- also catches interleaved dumps). Remove a chip here AND there when its
+-- emulation lands.
+-- ============================================================
+local function unsupported_chip(path)
+    local f = io.open(path, "rb")
+    if not f then return nil end
+    local data = f:read(66048)   -- covers the far candidate: 0xFFB0+0x200+0x30
+    f:close()
+    if not data then return nil end
+    -- base = file offset of the $xFB0 header block; string indices are 1-based
+    local function chip_at(base, hirom)
+        if base + 0x30 > #data then return nil end
+        local comp = data:byte(base + 0x2D) + data:byte(base + 0x2E) * 256
+        local sum  = data:byte(base + 0x2F) + data:byte(base + 0x30) * 256
+        if comp + sum ~= 0xFFFF then return nil end   -- not a real header
+        local speed = data:byte(base + 0x26)          -- $xFD5 map mode
+        local typ   = data:byte(base + 0x27)          -- $xFD6 chip type
+        local hi = math.floor(typ / 16)
+        if hirom then
+            if speed % 16 == 10 and hi == 15 then return "SPC7110" end
+        else
+            -- SA-1 is emulated (the module carries the second 65816), so
+            -- hi == 3 passes through here.
+            if hi == 4 then return "S-DD1" end
+            if typ == 0xF6 then return "SETA ST010/011" end
+            if typ == 0xF5 and speed % 16 ~= 10 then return "ST018" end
+        end
+        return nil
+    end
+    local candidates = {
+        { 0x7FB0, false }, { 0x7FB0 + 0x200, false },
+        { 0xFFB0, true },  { 0xFFB0 + 0x200, true },
+    }
+    for _, c in ipairs(candidates) do
+        local chip = chip_at(c[1], c[2])
+        if chip then return chip end
+    end
+    return nil
+end
+
+-- ============================================================
 -- Keymap / controls system (host-side translation, same as GameBoy/NGPC:
 -- the -keymap string maps physical keys to the codes the module reads)
 -- ============================================================
@@ -219,6 +266,7 @@ local create_main_screen
 local create_help_screen
 local create_about_screen
 local create_radio_screen
+local create_chip_screen
 
 -- ============================================================
 -- Radios vs the Speed renderer
@@ -358,6 +406,13 @@ create_main_screen = function()
                 status:set{ text = "No ROMs found!" }
                 return
             end
+            -- Before the radio prompt: no point freeing memory for a cart
+            -- that cannot boot.
+            local chip = unsupported_chip(found_roms[selected_rom].path)
+            if chip then
+                create_chip_screen(chip)
+                return
+            end
             -- Only Speed needs the radios down, and only when one is up.
             local ble, wifi = radios_on()
             if renderer == 0 and (ble or wifi) then
@@ -420,6 +475,36 @@ create_help_screen = function()
                  .. "only exit on a device in legacy\n"
                  .. "keyboard mode, where holds and key\n"
                  .. "combos do not register.",
+            text_font = FONT,
+            text_color = "#CCCCCC",
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+        }
+
+        local okBtn = c:Button{ w = lvgl.PCT(60), h = 30 }
+        okBtn:Label{ text = "OK", align = lvgl.ALIGN.CENTER }
+        okBtn:onClicked(function() create_main_screen() end)
+    end)
+end
+
+-- ============================================================
+-- Unsupported-coprocessor message. Reached from Play when the selected
+-- ROM's header names a chip the emulator does not implement.
+-- ============================================================
+create_chip_screen = function(chip)
+    show_screen(function(c)
+        c:Label{
+            text = "CHIP NOT SUPPORTED",
+            text_font = FONT,
+            text_color = ACCENT,
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+        }
+
+        c:Label{
+            text = "This game needs the\n"
+                 .. chip .. " coprocessor,\n"
+                 .. "which this emulator does not\n"
+                 .. "have yet. The game cannot run\n"
+                 .. "on this device.",
             text_font = FONT,
             text_color = "#CCCCCC",
             w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,

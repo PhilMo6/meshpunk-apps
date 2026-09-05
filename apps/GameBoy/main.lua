@@ -361,6 +361,17 @@ create_main_screen = function()
                         "-resume", resume_on and "1" or "0",
                         "-trkball", kb:trkball_string(),
                         "-stackkb", "24" }
+                    -- Cart-clock catch-up (MBC3 RTC): the module needs real
+                    -- time, and libc time() inside a module reads a clock
+                    -- nothing sets — so the device clock rides argv. pcall:
+                    -- guard against firmware without the binding. Omitted
+                    -- when the clock is unset; the module then skips
+                    -- catch-up and the cart clock runs only during play.
+                    local tok, ts = pcall(_rtc_time)
+                    if tok and type(ts) == "number" and ts > 0 then
+                        args[#args + 1] = "-unixtime"
+                        args[#args + 1] = tostring(ts)
+                    end
                     -- Omitted when nothing is bound, so the firmware falls back
                     -- to passthrough instead of parsing an empty table.
                     if km then

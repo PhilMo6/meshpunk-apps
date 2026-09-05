@@ -13,6 +13,9 @@ SETTINGS
 
 Battery saves are written to a .sav file next to the ROM.
 
+CART CLOCK
+Games with a cartridge clock (Pokemon Gold, Silver and Crystal) keep it running between sessions: on launch the clock jumps forward by the time the game was closed, using the device clock - set by GPS, the mesh, or Settings > Time. If the device clock is not set, the cart clock only runs during play.
+
 DEFAULT KEYS
 D-pad - W A S D, or the trackball
 A - M, or trackball click
