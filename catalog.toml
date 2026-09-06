@@ -595,10 +595,13 @@ files = ["readme.lua", "main.lua"]
 
 # ── LoRa protocols (protocol packages) ───────────────────────────────────────
 # Listed in the App Library's pinned "LoRa Protocols" category like apps.
-# Installed to L:/meshpunk/lora_protos/<id>/ (always internal — the boot
-# loader runs before/without SD). A package may ship *.bleproto.elf files
-# alongside its .loraproto.elf; the App Library moves those into
-# L:/meshpunk/ble_protos/<filename minus suffix>/ after install/update.
+# Installed to <drive>/meshpunk/lora_protos/<id>/ — internal flash
+# (recommended: loads even without the card) or the SD card, the user's
+# choice; the boot loader searches internal first, then the mounted card,
+# and a card-hosted package with no card at boot means radio off + notice.
+# A package may ship *.bleproto.elf files alongside its .loraproto.elf; the
+# App Library moves those into L:/meshpunk/ble_protos/<filename minus
+# suffix>/ (always internal) after install/update.
 # `apps` = the protocol's primary apps (catalog ids), offered for download
 # right after the protocol installs. Activation stays explicit in
 # Settings > Lora; updates load at reboot.

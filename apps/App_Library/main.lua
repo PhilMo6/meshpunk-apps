@@ -56,17 +56,30 @@ local function fw_required(entry)
 end
 
 -- ── LoRa protocol packages ───────────────────────────────────────────────────
--- Protocols ALWAYS install to internal storage (L:/meshpunk/lora_protos/<id>)
--- regardless of where apps go — the boot loader runs before/without the SD
--- card. Truth for "installed" = the package dir on L: (what _lora_proto_list
--- enumerates), rechecked per render so an install in the same session
--- updates every row.
-local PROTO_BASE    = "L:/meshpunk/lora_protos"
+-- Protocols install to internal flash (recommended: it loads even without
+-- the SD card) or to the card — the user's choice, like apps. The boot loader
+-- searches internal first, then the mounted card; a card-hosted package with
+-- no card at boot is "not installed" = the radio-off floor with a notice.
+-- Truth for "installed" = the package dir on either drive (what
+-- _lora_proto_list enumerates), rechecked per render so an install in the
+-- same session updates every row. BLE companions ALWAYS land on internal
+-- flash: the BLE loader is SD-independent and they are small.
+local PROTO_BASES   = { internal = "L:/meshpunk/lora_protos", sd = "S:/meshpunk/lora_protos" }
 local BLEPROTO_BASE = "L:/meshpunk/ble_protos"
 local PROTO_CAT     = "LoRa Protocols"   -- the pinned browse category
 
+-- Where a protocol package lives: its dir and loc ("internal"|"sd"), internal
+-- first (the loader's order), or nil when not installed.
+local function proto_where(id)
+    local d = PROTO_BASES.internal .. "/" .. id
+    if fileman.exists(d) then return d, "internal" end
+    d = PROTO_BASES.sd .. "/" .. id
+    if fileman.exists(d) then return d, "sd" end
+    return nil
+end
+
 local function proto_installed(id)
-    return fileman.exists(PROTO_BASE .. "/" .. id)
+    return proto_where(id) ~= nil
 end
 
 -- nil when the entry's LoRa-protocol dependency is satisfied (or it has
@@ -283,11 +296,13 @@ local function proto_name(id)
     return (pe and pe.name) or id
 end
 
--- Installed record of a protocol package (its .version marker), or nil.
+-- Installed record of a protocol package: its dir, loc and .version marker
+-- version ("?" = present but unmarked, a hand-copied elf), or nil.
 local function proto_inst(pe)
-    if not proto_installed(pe.id) then return nil end
-    return dl.read_version(PROTO_BASE .. "/" .. pe.id)
-        or { version = "?" }   -- present but unmarked (hand-copied elf)
+    local dir, loc = proto_where(pe.id)
+    if not dir then return nil end
+    local v = dl.read_version(dir)
+    return { dir = dir, loc = loc, version = (v and v.version) or "?" }
 end
 
 -- ── Install targets ──────────────────────────────────────────────────────────
@@ -341,12 +356,19 @@ local function show_info()
     end)
 end
 
--- Pick SD/Internal, showing free space; cb(loc) on choice.
-local function pick_location(cb)
+-- Pick SD/Internal, showing free space; cb(loc) on choice. Apps recommend
+-- the card; opts.recommend = "internal" flips that (protocols: an internal
+-- package loads even when the card is missing at boot) and opts.note adds
+-- the reason line under the title.
+local function pick_location(cb, opts)
+    opts = opts or {}
     local drives = {}
     for _, d in ipairs(fileman.drives()) do drives[d.id] = d end
     modal({}, function(box, close)
         box:Label { text = "Install where?", w = lvgl.PCT(100), h = 18 }
+        if opts.note then
+            box:Label { text = opts.note, w = lvgl.PCT(100) }
+        end
 
         local function option(label, loc, d)
             local sub
@@ -370,8 +392,14 @@ local function pick_location(cb)
             end)
         end
 
-        option("SD card (recommended)", "sd", drives.S or { mounted = false })
-        option("Internal", "internal", drives.L or { mounted = true })
+        local rec = opts.recommend or "sd"
+        if rec == "internal" then
+            option("Internal (recommended)", "internal", drives.L or { mounted = true })
+            option("SD card", "sd", drives.S or { mounted = false })
+        else
+            option("SD card (recommended)", "sd", drives.S or { mounted = false })
+            option("Internal", "internal", drives.L or { mounted = true })
+        end
 
         local cancel_btn = box:Button { w = lvgl.PCT(100), h = 26 }
         cancel_btn:Label { text = "Cancel", align = lvgl.ALIGN.CENTER }
@@ -481,14 +509,17 @@ end
 -- is what lets the Updates page notice a BLE protocol that is missing or
 -- behind its package (see pending_bleproto_issues).
 local function relocate_bleprotos(pe)
-    local dir = PROTO_BASE .. "/" .. pe.id
+    local dir = proto_where(pe.id)
+    if not dir then return end
     local entries = fileman.list(dir, { sizes = false }) or {}
     for _, e in ipairs(entries) do
         if e.type ~= "dir" and e.name:sub(-13) == ".bleproto.elf" then
             local pid = e.name:sub(1, -14)
             local pdir = BLEPROTO_BASE .. "/" .. pid
             fileman.mkdir(pdir)
-            local ok, err = fileman.rename(dir .. "/" .. e.name, pdir .. "/" .. e.name)
+            -- fileman.move: same-drive rename, or copy + delete from a
+            -- card-hosted package (the companion always lives on L:).
+            local ok, err = fileman.move(dir .. "/" .. e.name, pdir .. "/" .. e.name)
             if not ok then
                 toast("BLE proto move failed: " .. tostring(err))
             elseif not fileman.write(pdir .. "/.version",
@@ -520,14 +551,19 @@ local function bleproto_state(bp)
     return (v and v.version) or "?"
 end
 
--- Install (fresh) or update (in place) one protocol package, with its own
--- visible progress modal. done(err): nil on success, "cancelled" on cancel.
-local function run_proto_install(pe, done)
-    local dir = PROTO_BASE .. "/" .. pe.id
-    local updating = proto_installed(pe.id)
+-- Install (fresh, at `loc`) or update (in place, wherever it already lives)
+-- one protocol package, with its own visible progress modal. done(err): nil
+-- on success, "cancelled" on cancel.
+local function run_proto_install(pe, loc, done)
+    local dir, have_loc = proto_where(pe.id)
+    if dir then
+        loc = have_loc
+    else
+        dir = PROTO_BASES[loc] .. "/" .. pe.id
+    end
     dl.run_install(root, {
-        entry = pe, kind = "protocols", loc = "internal",
-        final_dir = dir, old_dir = updating and dir or nil,
+        entry = pe, kind = "protocols", loc = loc,
+        final_dir = dir, old_dir = (have_loc and dir) or nil,
         on_done = function(err)
             if not err then relocate_bleprotos(pe) end
             done(err)
@@ -545,9 +581,9 @@ end
 local function pending_bleproto_issues()
     local out = {}
     for _, pe in ipairs(catalog_protocols()) do
-        if proto_installed(pe.id) and not fw_required(pe) then
-            local pv = dl.read_version(PROTO_BASE .. "/" .. pe.id)
-            local want = (pv and pv.version) or "?"
+        local pinst = (not fw_required(pe)) and proto_inst(pe) or nil
+        if pinst then
+            local want = pinst.version
             for _, bp in ipairs(package_bleprotos(pe)) do
                 local have = bleproto_state(bp)
                 if have and have ~= want then
@@ -565,11 +601,9 @@ end
 local function pending_proto_updates()
     local out = {}
     for _, pe in ipairs(catalog_protocols()) do
-        if proto_installed(pe.id) and not fw_required(pe) then
-            local v = dl.read_version(PROTO_BASE .. "/" .. pe.id)
-            if v and version_newer(pe.version, v.version) then
-                out[#out + 1] = { entry = pe, inst = v }
-            end
+        local pinst = (not fw_required(pe)) and proto_inst(pe) or nil
+        if pinst and version_newer(pe.version, pinst.version) then
+            out[#out + 1] = { entry = pe, inst = pinst }
         end
     end
     return out
@@ -758,8 +792,10 @@ local function do_remove_proto(pe)
             .. "messages stay on storage.",
         warn,
         function()
-            dl.run_remove(root, pe.name, PROTO_BASE .. "/" .. pe.id, {
-                parent_base = PROTO_BASE,
+            local dir, loc = proto_where(pe.id)
+            if not dir then toast("Not installed") refresh_view() return end
+            dl.run_remove(root, pe.name, dir, {
+                parent_base = PROTO_BASES[loc],
                 on_done = function(err)
                     refresh_view()
                     if err then toast(err) else toast("Removed " .. pe.name .. " protocol") end
@@ -816,7 +852,8 @@ local function proto_menu(pe)
         end
         if inst then
             box:Label {
-                text = "Installed: v" .. tostring(inst.version)
+                text = "Installed: v" .. tostring(inst.version) .. " on "
+                    .. ((inst.loc == "sd") and "SD" or "Internal")
                     .. ((active == pe.id) and "  (running now)" or ""),
                 w = lvgl.PCT(100), h = 16,
             }
@@ -858,19 +895,22 @@ local function proto_menu(pe)
             }
         elseif not inst then
             item("Install", function()
-                run_proto_install(pe, function(err)
-                    if err then
-                        toast(err == "cancelled" and "Cancelled" or err)
+                pick_location(function(loc)
+                    run_proto_install(pe, loc, function(err)
+                        if err then
+                            toast(err == "cancelled" and "Cancelled" or err)
+                            refresh_view()
+                            return
+                        end
                         refresh_view()
-                        return
-                    end
-                    refresh_view()
-                    offer_proto_apps(pe)
-                end)
+                        offer_proto_apps(pe)
+                    end)
+                end, { recommend = "internal",
+                       note = "Internal loads even without the SD card; a card-hosted protocol needs the card at boot (radio off without it)." })
             end)
         elseif version_newer(pe.version, inst.version) then
             item("Update to v" .. tostring(pe.version), function()
-                run_proto_install(pe, function(err)
+                run_proto_install(pe, nil, function(err)
                     if err then
                         toast(err == "cancelled" and "Cancelled" or err)
                         refresh_view()
@@ -890,7 +930,7 @@ local function proto_menu(pe)
             end
             if broken then
                 item("Reinstall package (restores BLE protocol)", function()
-                    run_proto_install(pe, function(err)
+                    run_proto_install(pe, nil, function(err)
                         if err then
                             toast(err == "cancelled" and "Cancelled" or err)
                             refresh_view()
@@ -954,7 +994,7 @@ local function proto_update_row(content, su)
     row:Label { text = "LoRa protocol package", align = lvgl.ALIGN.BOTTOM_LEFT }
     row:Label { text = "Update", align = lvgl.ALIGN.RIGHT_MID }
     nav.tap(row, function()
-        run_proto_install(pe, function(err)
+        run_proto_install(pe, nil, function(err)
             if err then
                 if err ~= "cancelled" then toast("Protocol: " .. tostring(err)) end
                 return
@@ -1007,7 +1047,7 @@ local function bleproto_issue_row(content, bi)
     row:Label { text = "Reinstalls the " .. pe.name .. " package", align = lvgl.ALIGN.BOTTOM_LEFT }
     row:Label { text = "Repair", align = lvgl.ALIGN.RIGHT_MID }
     nav.tap(row, function()
-        run_proto_install(pe, function(err)
+        run_proto_install(pe, nil, function(err)
             if err then
                 if err ~= "cancelled" then toast("Protocol: " .. tostring(err)) end
                 return
@@ -1106,17 +1146,22 @@ local function app_menu(entry, inst)
                 }
             else
                 item("Download protocol, then " .. (inst and "update" or "install"), function()
-                    run_proto_install(pe, function(err)
-                        if err then
-                            toast(err == "cancelled" and "Cancelled" or err)
-                            refresh_view()
-                            return
-                        end
-                        toast("Installed " .. pe.name .. " protocol")
-                        do_install(entry, inst, function()
-                            notice(activation_hint(pe))
+                    -- The protocol asks for ITS location first (internal
+                    -- recommended); the app then asks for its own.
+                    pick_location(function(loc)
+                        run_proto_install(pe, loc, function(err)
+                            if err then
+                                toast(err == "cancelled" and "Cancelled" or err)
+                                refresh_view()
+                                return
+                            end
+                            toast("Installed " .. pe.name .. " protocol")
+                            do_install(entry, inst, function()
+                                notice(activation_hint(pe))
+                            end)
                         end)
-                    end)
+                    end, { recommend = "internal",
+                           note = "Where should the " .. pe.name .. " protocol go? Internal loads even without the SD card." })
                 end)
             end
         elseif entry and not inst then

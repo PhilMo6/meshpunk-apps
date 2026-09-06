@@ -67,9 +67,12 @@ is different on purpose: a protocol is NEVER installed silently — the app show
 
 `[[protocols]]` entries are LoRa radio protocol packages (`<id>.loraproto.elf`,
 optionally with `*.bleproto.elf` BLE-slot companions). Files live under
-`protocols/<id>/` and install to internal flash `L:/meshpunk/lora_protos/<id>/`;
-BLE companions are moved to `L:/meshpunk/ble_protos/<name>/` after install and get
-a `.version` marker stamped with the package version. The App Library lists them in
+`protocols/<id>/` and install to `meshpunk/lora_protos/<id>/` on internal flash
+(recommended — it loads even without the SD card) or on the card; the boot loader
+searches internal first, then the mounted card, and a card-hosted package with
+no card at boot leaves the radio off with a notice. BLE companions are always
+moved to `L:/meshpunk/ble_protos/<name>/` after install and get a `.version`
+marker stamped with the package version. The App Library lists them in
 its pinned "LoRa Protocols" category; installing one offers its `apps`. The user
 picks the boot protocol in Settings > Lora (a reboot applies it). A protocol's
 source tree must ship under `module-src/<id>/`.

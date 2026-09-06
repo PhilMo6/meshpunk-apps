@@ -2,7 +2,7 @@ return { body = [[
 Chooses which LoRa protocol runs the radio. Exactly one protocol runs at a time, picked at boot.
 
 - MeshCore comes preinstalled and is the default.
-- Other protocols are downloads from the App Library's LoRa Protocols category. They install to internal storage and load when the device starts; installing one offers its apps too.
+- Other protocols are downloads from the App Library's LoRa Protocols category. They install to internal flash (recommended) or the SD card and load when the device starts - a card-hosted protocol needs the card at boot, otherwise the radio stays off for that boot; installing one offers its apps too.
 - No radio boots the device with the LoRa chip switched off. Everything except mesh traffic works - useful for testing, and it is how the device runs if no protocol is installed.
 - Selecting a protocol here saves the choice; the radio actually switches on the next reboot. A Reboot to apply button appears when the saved choice differs from what is running now.
 
