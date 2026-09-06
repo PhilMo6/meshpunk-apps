@@ -17,7 +17,7 @@ downloads apps straight onto the device — no reflash, no SD card shuffling.
 ## Repo layout
 
 ```
-catalog.toml          # master index — metadata + file lists for apps, themes AND drivers
+catalog.toml          # master index — metadata + file lists for apps, themes, drivers AND protocols
 apps/
   snake/
     main.lua
@@ -31,6 +31,11 @@ drivers/
   gamepad/
     gamepad.drv.elf   # USB host driver module + its match manifest
     match
+protocols/
+  mtlite/
+    mtlite.loraproto.elf   # LoRa protocol package (+ optional *.bleproto.elf)
+module-src/
+  mtlite/             # full source tree of every published ELF module (licence obligation)
 ```
 
 ## Catalog fields
@@ -47,12 +52,40 @@ category = "Games"       # optional install subfolder (Games, Tools, ...); omit 
 files = ["main.lua"]     # every file to download, relative to apps/<id>/
 min_fw = 2               # optional: minimum firmware API level (_FW_API) required
 drivers = ["gamepad"]    # optional: USB driver ids (below) to auto-install with the app
+requires_protocol = "mtlite"   # optional: the LoRa protocol (below) the app runs under
+was = "Old Folder"       # optional: pre-id install folder this entry migrated from
 ```
 
 `min_fw` gates the entry — devices below that firmware API level show "Needs FW"
 instead of Install. `drivers` lists `[[drivers]]` ids the app depends on; the App
 Library installs each one right after the app (same location), skipping any already
-present. App removal never removes drivers — they're shared.
+present. App removal never removes drivers — they're shared. `requires_protocol`
+is different on purpose: a protocol is NEVER installed silently — the app shows
+"Needs <protocol>" and, on Install, asks whether to download the protocol first.
+
+## LoRa protocols
+
+`[[protocols]]` entries are LoRa radio protocol packages (`<id>.loraproto.elf`,
+optionally with `*.bleproto.elf` BLE-slot companions). Files live under
+`protocols/<id>/` and install to internal flash `L:/meshpunk/lora_protos/<id>/`;
+BLE companions are moved to `L:/meshpunk/ble_protos/<name>/` after install and get
+a `.version` marker stamped with the package version. The App Library lists them in
+its pinned "LoRa Protocols" category; installing one offers its `apps`. The user
+picks the boot protocol in Settings > Lora (a reboot applies it). A protocol's
+source tree must ship under `module-src/<id>/`.
+
+```toml
+[[protocols]]
+id = "mtlite"                           # == install folder lora_protos/mtlite
+name = "MTLite"
+author = "You"
+version = "1.0.0"                       # bump on every change; BLE companions share it
+type = "elf"
+description = "One line shown in the store"
+min_fw = 12                             # the firmware level that introduced protocol packages
+files = ["mtlite.loraproto.elf"]        # relative to protocols/<id>/
+apps = ["mtlite_messenger", "mtlite_radio"]   # primary app ids offered after install
+```
 
 ## USB drivers
 

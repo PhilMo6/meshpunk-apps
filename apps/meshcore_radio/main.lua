@@ -1,5 +1,5 @@
--- Settings App for MeshPunk
--- Node name, storage toggle, radio info
+-- MeshCore radio settings: live radio parameters, regional presets, RX boost,
+-- contact overwrite, message repeat. The node name lives in Meshcore > Identity.
 
 local lvgl = require("lvgl")
 local clock_fmt_mod = require("lib/clock_fmt")
@@ -7,6 +7,9 @@ local utils = require("lib/utils")
 local apps = require("lib/apps")
 local nav = require("lib/nav")
 local theme = require("lib/theme")
+
+-- MeshCore-only app: under another LoRa protocol, show the notice and bail.
+if apps.proto_gate("meshcore") then return end
 
 -- Root
 local root = apps.new_root()
@@ -96,19 +99,8 @@ local function show_restart_popup()
     end)
 end
 
--- ── Section: Node Name ──
-content:Label { text = "-- Node Name --", w = lvgl.PCT(100), h = 16 }
-
-local name_input = content:Textarea {
-    password_mode = false,
-    one_line = true,
-    text = info.name or "NONAME",
-    w = lvgl.PCT(100),
-    h = 30,
-}
-name_input:clear_flag(lvgl.FLAG.SCROLLABLE)
-
 -- ── Section: Radio Info ──
+-- (The node name lives in Meshcore > Identity.)
 content:Label { text = "-- Radio --", w = lvgl.PCT(100), h = 16 }
 
 content:Label { text = "Freq (MHz):", w = lvgl.PCT(100), h = 16 }
@@ -153,11 +145,6 @@ cr_input:clear_flag(lvgl.FLAG.SCROLLABLE)
 
 -- ── Save All ──
 local function save_all()
-    local new_name = name_input.text
-    if new_name and #new_name > 0 then
-        pcall(_mesh_set_config, "name", new_name)
-    end
-
     local fields = {
         { input = freq_input, key = "freq", label = "Freq" },
         { input = tx_input,   key = "tx",   label = "TX" },

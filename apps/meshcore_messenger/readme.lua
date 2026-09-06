@@ -7,7 +7,7 @@ Room servers and repeaters: log in, sync messages, and run admin commands right 
 
 Long-press the message input to open the clipboard menu - that is where you paste copied contact cards and text.
 
-Tip: before your first messages, set the radio to your local defaults (Settings > Radio) and review RX boost, Contact Overwrite, and Message Repeat.]]
+Tip: before your first messages, set the radio to your local defaults (Meshcore > Radio) and review RX boost, Contact Overwrite, and Message Repeat.]]
 
 if caps.keyboard then
     body = body .. [[

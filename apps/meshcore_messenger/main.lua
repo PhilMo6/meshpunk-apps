@@ -12,6 +12,9 @@ local apps = require("lib/apps")
 local nav = require("lib/nav")
 local theme = require("lib/theme")
 
+-- MeshCore-only app: under another LoRa protocol, show the notice and bail.
+if apps.proto_gate("meshcore") then return end
+
 -- Persistence lives on the C++ PunkMesh side (respects _storage: LittleFS
 -- root or /meshpunk on SD), so any app can access the same message history.
 -- The stored history is bounded by the firmware's retention-days setting, not
@@ -757,7 +760,7 @@ local function build_conversations()
             convos[#convos + 1] = {
                 kind = "channel", idx = ch.idx, name = ch.name,
                 last = last, ts = last and last.timestamp or 0,
-                unread = messages:unreadInChannel(ch.idx),
+                unread = messages:unreadInChannel(ch.name),
                 count = sum and sum.count or 0,
             }
         end
@@ -771,7 +774,7 @@ local function build_conversations()
             convos[#convos + 1] = {
                 kind = "channel", idx = 0, name = "Public",
                 last = sum.last, ts = sum.last.timestamp or 0,
-                unread = messages:unreadInChannel(0), count = sum.count or 0,
+                unread = messages:unreadInChannel("Public"), count = sum.count or 0,
             }
         end
     end
@@ -931,7 +934,7 @@ show_inbox = function()
         end
         touch_row("ch" .. idx, {
             kind = "channel", idx = idx, name = cname,
-            last = msg, ts = msg.timestamp, unread = messages:unreadInChannel(idx),
+            last = msg, ts = msg.timestamp, unread = messages:unreadInChannel(cname),
         })
     end)
 
@@ -974,7 +977,7 @@ local function build_chat(target)
     -- Clear unread for this thread now that it's open. Rooms and repeaters
     -- share the DM store/counters, keyed by the server contact's name.
     if target.type == "channel" then
-        messages:markChannelSeen(target.idx)
+        messages:markChannelSeen(target.name)
     else
         messages:markDMSeen(target.name)
     end
@@ -1250,9 +1253,9 @@ local function build_chat(target)
     -- history). Scrolling up pages the next batch of older records in and prunes
     -- (fully frees) an equal batch off the bottom; scrolling down does the
     -- reverse. top_off/bot_off are the byte offsets of the window's first/last
-    -- record; file_size is the known EOF. Backing reads: _mesh_chat_page_channel
-    -- / _mesh_chat_page_dm (punkmesh.cpp). Keeps the LVGL object count flat so a
-    -- huge thread can't lag the UI.
+    -- record; file_size is the known EOF. Backing reads: the universal
+    -- _store_chat_page_channel / _store_chat_page_dm (name-keyed, mstore).
+    -- Keeps the LVGL object count flat so a huge thread can't lag the UI.
     local bubbles = {}                 -- { {obj, msg, off0, off1}, ... } oldest→newest
     local top_off, bot_off, file_size = 0, 0, 0
     local empty_lbl = nil              -- the "no messages" placeholder, if shown
@@ -1269,9 +1272,9 @@ local function build_chat(target)
     local function fetch(mode, cursor)   -- mode 0 tail / 1 older / 2 newer
         local ok, r
         if target.type == "channel" then
-            ok, r = pcall(_mesh_chat_page_channel, target.idx, mode, cursor or 0, PAGE)
+            ok, r = pcall(_store_chat_page_channel, target.name, mode, cursor or 0, PAGE)
         else
-            ok, r = pcall(_mesh_chat_page_dm, target.name, mode, cursor or 0, PAGE)
+            ok, r = pcall(_store_chat_page_dm, target.name, mode, cursor or 0, PAGE)
         end
         if ok and type(r) == "table" and type(r.list) == "table" then return r end
         return { list = {}, size = file_size or 0 }
@@ -1543,7 +1546,7 @@ local function build_chat(target)
         messages:onMessage(function(msg)
             if (msg.channel_idx or 0) == target.idx then
                 on_live(msg)
-                messages:clearUnreadChannel(target.idx)
+                messages:clearUnreadChannel(target.name)
             end
         end)
     elseif target.type == "dm" then
@@ -2535,6 +2538,51 @@ show_channels = function()
     }
     psk_input:clear_flag(lvgl.FLAG.SCROLLABLE)
 
+    -- Long-press clipboard menu on the add fields (paste REPLACES — these
+    -- carry single values, a shared PSK or a channel name).
+    local function attach_clipmenu(ta)
+        ta:onevent(lvgl.EVENT.LONG_PRESSED, function()
+            local overlay = root:Object {
+                w = W, h = H, x = 0, y = 0,
+                bg_color = "#000000", bg_opa = 128, border_width = 0, pad_all = 0,
+            }
+            overlay:clear_flag(lvgl.FLAG.SCROLLABLE)
+            overlay:add_flag(lvgl.FLAG.CLICKABLE)
+            local function pclose()
+                nav.pop()
+                overlay:delete()
+            end
+            local pbox = overlay:Object {
+                w = W - 40, h = lvgl.SIZE_CONTENT, align = lvgl.ALIGN.CENTER,
+                bg_color = "#333333", radius = 6,
+                border_width = 1, border_color = "#555555", pad_all = 8,
+                flex = { flex_direction = "column", flex_wrap = "nowrap" },
+            }
+            nav.push(pbox)
+            pbox:Label { text = "Clipboard", w = lvgl.PCT(100), text_color = COL_META }
+
+            local paste_b = pbox:Button { w = lvgl.PCT(100), h = 28 }
+            paste_b:Label { text = "Paste", align = lvgl.ALIGN.CENTER }
+            paste_b:onevent(lvgl.EVENT.RELEASED, function()
+                if clipboard.has() then ta.text = clipboard.paste() end
+                pclose()
+            end)
+
+            local copy_b = pbox:Button { w = lvgl.PCT(100), h = 28 }
+            copy_b:Label { text = "Copy", align = lvgl.ALIGN.CENTER }
+            copy_b:onevent(lvgl.EVENT.RELEASED, function()
+                clipboard.copy(ta.text or "")
+                pclose()
+            end)
+
+            local cancel_b = pbox:Button { w = lvgl.PCT(100), h = 26 }
+            cancel_b:Label { text = "Cancel", align = lvgl.ALIGN.CENTER }
+            cancel_b:onevent(lvgl.EVENT.RELEASED, pclose)
+        end)
+    end
+    attach_clipmenu(ch_input)
+    attach_clipmenu(psk_input)
+
     local add_btn = body:Button { w = 45, h = 28 }
     add_btn:Label { text = "Add", align = lvgl.ALIGN.CENTER }
     add_btn:onevent(lvgl.EVENT.RELEASED, function()
@@ -2568,7 +2616,7 @@ show_channels = function()
 
     local public_present = false
     for _, ch in ipairs(channels) do
-        local unread = messages:unreadInChannel(ch.idx)
+        local unread = messages:unreadInChannel(ch.name)
         local chat_btn = body:Button { w = lvgl.PCT(72), h = 24 }
         local lbl = chat_btn:Label { align = lvgl.ALIGN.LEFT_MID }
         lbl.text = utils.emojiText(ch.name) .. (unread > 0 and ("  (" .. unread .. ")") or "")

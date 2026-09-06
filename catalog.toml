@@ -3,9 +3,20 @@
 # repo without a catalog entry are invisible. See README.md for the field
 # reference.
 #
-# `name` doubles as the on-device install folder — for apps that ship
-# preinstalled in firmware it MUST match the firmware folder name exactly
-# (case-sensitive) or installed-state tracking breaks.
+# `id` is the repo folder (download path) AND the device-side registry
+# identity (written into the installed .version as an `id=` line). `name` is
+# the on-device install folder + display label — it may repeat across
+# categories (each protocol category has its own "Radio"). For apps that
+# ship preinstalled in firmware, `name` (and category) MUST match the
+# firmware folder exactly (case-sensitive) or installed-state tracking
+# breaks. `was` marks the pre-id folder name an entry migrated from: only
+# entries carrying it join old un-id'd installs by name (the update then
+# lands at the new category home and removes the old one).
+# `requires_protocol` names the LoRa protocol package an app runs under: the
+# App Library shows "Needs <protocol>" until it is installed and, on Install,
+# asks to download the protocol first (never automatically). A protocol
+# entry's `apps` lists its primary app ids, offered right after the protocol
+# installs.
 #
 # Preinstalled content ships with a .version marker at these same versions;
 # bumping a version here (with updated files) offers the update on-device.
@@ -20,7 +31,7 @@
 
 [meta]
 version = 1
-updated = "2026-08-24"
+updated = "2026-09-05"
 
 # ── Download-only apps (not shipped in firmware) ─────────────────────────────
 
@@ -97,7 +108,7 @@ name = "Genesis"
 author = "PhilMo6"
 version = "1.1.0"
 type = "elf"
-description = "Sega Genesis / Mega Drive emulator (Gwenesis) with battery saves"
+description = "Sega Genesis / Mega Drive emulator (Gwenesis)"
 category = "Games"
 min_fw = 8
 files = ["readme.lua", "main.lua", "genesis.app.elf"]
@@ -202,32 +213,35 @@ files = [
 id = "App_Library"
 name = "App Library"
 author = "PhilMo6"
-version = "1.0.3"
+version = "1.2.0"
 type = "lua"
 locked = true
-description = "This app — browse and install apps and themes"
+description = "This app — browse and install apps, themes and LoRa protocols"
 files = ["readme.lua", "main.lua"]
 
 [[apps]]
 id = "Map"
 name = "Map"
 author = "PhilMo6"
-version = "1.0.1"
+version = "1.0.2"
 type = "lua"
 locked = true
 description = "Offline tile map with mesh overlays"
 files = ["readme.lua", "main.lua"]
+min_fw = 12
 
 [[apps]]
-id = "Messenger"
+id = "meshcore_messenger"
 name = "Messenger"
 author = "PhilMo6"
-version = "1.1.1"
+version = "1.1.2"
 type = "lua"
-locked = true
 description = "MeshCore LoRa messenger"
+category = "Meshcore"
+requires_protocol ="meshcore"
+min_fw = 12
+was = "Messenger"
 files = ["readme.lua", "main.lua"]
-min_fw = 5
 
 [[apps]]
 id = "Read_Me"
@@ -411,47 +425,54 @@ files = ["main.lua"]
 min_fw = 2
 
 [[apps]]
-id = "Identity"
+id = "meshcore_identity"
 name = "Identity"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.1.0"
 type = "lua"
-description = "Mesh identity settings"
-locked = true
-category = "Settings"
+description = "MeshCore identity settings"
+category = "Meshcore"
+requires_protocol ="meshcore"
+min_fw = 12
+was = "Identity"
 files = ["main.lua"]
 
 [[apps]]
 id = "Meshpunk"
 name = "Meshpunk"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.1.0"
 type = "lua"
 description = "Meshpunk settings"
 locked = true
 category = "Settings"
+min_fw = 12
 files = ["main.lua"]
 
 [[apps]]
-id = "Notifications"
+id = "meshcore_notifications"
 name = "Notifications"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.1.0"
 type = "lua"
-description = "Notification settings"
-locked = true
-category = "Settings"
+description = "MeshCore per-channel notification settings"
+category = "Meshcore"
+requires_protocol ="meshcore"
+min_fw = 12
+was = "Notifications"
 files = ["main.lua"]
 
 [[apps]]
-id = "Radio"
+id = "meshcore_radio"
 name = "Radio"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.1.0"
 type = "lua"
-description = "LoRa radio settings"
-locked = true
-category = "Settings"
+description = "MeshCore radio settings"
+category = "Meshcore"
+requires_protocol ="meshcore"
+min_fw = 12
+was = "Radio"
 files = ["main.lua"]
 
 [[apps]]
@@ -477,15 +498,132 @@ category = "Settings"
 files = ["main.lua"]
 
 [[apps]]
-id = "Wireless"
-name = "Wireless"
+id = "Alerts"
+name = "Alerts"
 author = "PhilMo6"
-version = "1.1.0"
+version = "1.0.0"
 type = "lua"
-description = "WiFi and Bluetooth settings"
+description = "Master notification switches (sound, keyboard blink)"
 locked = true
 category = "Settings"
+min_fw = 12
 files = ["main.lua"]
+
+[[apps]]
+id = "Wifi"
+name = "Wifi"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "WiFi networks and connectivity"
+locked = true
+category = "Settings"
+min_fw = 12
+files = ["readme.lua", "main.lua"]
+
+[[apps]]
+id = "Ble"
+name = "Ble"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Bluetooth protocol slot and app link"
+locked = true
+category = "Settings"
+min_fw = 12
+files = ["readme.lua", "main.lua"]
+
+[[apps]]
+id = "Lora"
+name = "Lora"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "LoRa protocol selection (boot protocol picker)"
+locked = true
+category = "Settings"
+min_fw = 12
+files = ["readme.lua", "main.lua"]
+
+[[apps]]
+id = "mtlite_messenger"
+name = "Messenger"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Meshtastic-compatible messenger"
+category = "MTLite"
+requires_protocol ="mtlite"
+min_fw = 12
+files = ["readme.lua", "main.lua"]
+
+[[apps]]
+id = "mtlite_radio"
+name = "Radio"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "MTLite radio settings"
+category = "MTLite"
+requires_protocol ="mtlite"
+min_fw = 12
+files = ["readme.lua", "main.lua"]
+
+[[apps]]
+id = "mtlite_identity"
+name = "Identity"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "MTLite node identity - name, keys, regenerate/import"
+category = "MTLite"
+requires_protocol ="mtlite"
+min_fw = 12
+files = ["readme.lua", "main.lua"]
+
+[[apps]]
+id = "mtlite_notifications"
+name = "Notifications"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "MTLite per-channel notification settings"
+category = "MTLite"
+requires_protocol ="mtlite"
+min_fw = 12
+files = ["readme.lua", "main.lua"]
+
+# ── LoRa protocols (protocol packages) ───────────────────────────────────────
+# Listed in the App Library's pinned "LoRa Protocols" category like apps.
+# Installed to L:/meshpunk/lora_protos/<id>/ (always internal — the boot
+# loader runs before/without SD). A package may ship *.bleproto.elf files
+# alongside its .loraproto.elf; the App Library moves those into
+# L:/meshpunk/ble_protos/<filename minus suffix>/ after install/update.
+# `apps` = the protocol's primary apps (catalog ids), offered for download
+# right after the protocol installs. Activation stays explicit in
+# Settings > Lora; updates load at reboot.
+
+[[protocols]]
+id = "meshcore"
+name = "MeshCore"
+author = "PhilMo6"
+version = "1.0.0"
+type = "elf"
+description = "MeshCore LoRa protocol + phone-app companion BLE protocol"
+min_fw = 12
+files = ["meshcore.loraproto.elf", "meshcore_companion.bleproto.elf"]
+apps = ["meshcore_messenger", "meshcore_radio", "meshcore_notifications", "meshcore_identity"]
+
+[[protocols]]
+id = "mtlite"
+name = "MTLite"
+author = "PhilMo6"
+version = "1.0.0"
+type = "elf"
+description = "Meshtastic-compatible LoRa protocol (leaf role)"
+min_fw = 12
+files = ["mtlite.loraproto.elf"]
+apps = ["mtlite_messenger", "mtlite_radio", "mtlite_notifications", "mtlite_identity"]
 
 # ── Themes ───────────────────────────────────────────────────────────────────
 # All preinstalled themes are tracked at 1.0.0; meshcore is download-only.
