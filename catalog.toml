@@ -31,7 +31,7 @@
 
 [meta]
 version = 1
-updated = "2026-09-09"
+updated = "2026-09-10"
 
 # ── Download-only apps (not shipped in firmware) ─────────────────────────────
 
@@ -213,7 +213,7 @@ files = [
 id = "App_Library"
 name = "App Library"
 author = "PhilMo6"
-version = "1.2.0"
+version = "1.2.1"
 type = "lua"
 locked = true
 description = "This app — browse and install apps, themes and LoRa protocols"
@@ -404,7 +404,7 @@ min_fw = 7
 id = "Firmware"
 name = "Firmware"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.1"
 type = "lua"
 description = "Firmware updates over WiFi or from the SD card"
 locked = true
