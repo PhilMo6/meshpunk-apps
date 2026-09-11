@@ -31,7 +31,7 @@
 
 [meta]
 version = 1
-updated = "2026-09-05"
+updated = "2026-09-09"
 
 # ── Download-only apps (not shipped in firmware) ─────────────────────────────
 
@@ -39,11 +39,11 @@ updated = "2026-09-05"
 id = "Doom"
 name = "Doom"
 author = "PhilMo6"
-version = "1.2.0"
+version = "1.3.0"
 type = "elf"
-description = "The classic FPS, running native"
+description = "The classic FPS, running native - multiplayer over USB cable or WiFi"
 category = "Games"
-min_fw = 8
+min_fw = 13
 files = ["readme.lua", "main.lua", "doom.app.elf"]
 
 [[apps]]
@@ -399,6 +399,19 @@ files = ["main.lua"]
 # 1.1.0 adds the "Legacy keyboard" toggle — needs the _kb_legacy_get/_set
 # bindings (firmware API level 7).
 min_fw = 7
+
+[[apps]]
+id = "Firmware"
+name = "Firmware"
+author = "PhilMo6"
+version = "1.0.0"
+type = "lua"
+description = "Firmware updates over WiFi or from the SD card"
+locked = true
+category = "Settings"
+files = ["readme.lua", "main.lua"]
+# The whole page is the _ota_* bindings (firmware API level 13).
+min_fw = 13
 
 [[apps]]
 id = "Power"

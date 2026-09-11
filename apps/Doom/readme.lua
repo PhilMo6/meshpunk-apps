@@ -10,6 +10,15 @@ SETTINGS
 - Music: OFF or ON.
 - SFX: OFF or ON.
 
+MULTIPLAYER
+Two to four decks, over a USB cable between two decks or over a WiFi network they all share (a router or a phone hotspot). Every choice is made on the Multiplayer screen; the game only shows what it is doing while it connects.
+- Host a game: pick the number of players, co-op or deathmatch, skill, start level, monsters, respawn and a time limit, then Start. The game waits until that many players are in and starts by itself. The screen shows the host's WiFi address. The start level list is read from the selected WAD, so it holds that WAD's own levels and a mod's levels when you play one.
+- Join over USB cable: connect the two decks with the cable (the launcher shows USB link: connected), then Start.
+- Join over WiFi (search): the game looks for a host on the network by itself.
+- Join over WiFi (address): type the host's address as shown on its screen.
+Order does not matter: a joiner keeps looking for the host for two minutes. The Menu key backs out of any wait.
+Both decks need this app version and a firmware that supports it. Hotspots that keep their clients apart block WiFi play. The host's settings apply to everyone; use the same WAD on every deck.
+
 DEFAULT KEYS
 Forward - W, or trackball up
 Backward - S, or trackball down

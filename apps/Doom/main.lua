@@ -51,6 +51,81 @@ local function wad_type(path)
     else return "unknown" end
 end
 
+-- The levels a WAD actually contains, read from its own lump directory.
+-- Header: 4-byte tag, lump count, directory offset (both 32-bit
+-- little-endian). Each 16-byte directory entry ends with an 8-byte name, and
+-- a level's marker lump is named ExMy (Doom 1) or MAPxx (Doom 2) - so the
+-- names say both which scheme a WAD uses and exactly which levels exist.
+-- Returns a sorted list of { name, ep, map } with ep = 0 for MAPxx, or an
+-- empty list when the file cannot be read or holds no levels.
+local level_cache = {}
+
+local function le32(s, i)
+    local a, b, c, d = s:byte(i, i + 3)
+    if not d or d > 127 then return nil end   -- truncated, or past 2GB
+    return a + b * 256 + c * 65536 + d * 16777216
+end
+
+local function wad_levels(path)
+    local cached = level_cache[path]
+    if cached then return cached end
+
+    local levels = {}
+    level_cache[path] = levels
+
+    local f = io.open(path, "r")
+    if not f then return levels end
+    local hdr = f:read(12)
+    if not hdr or #hdr < 12 then f:close(); return levels end
+
+    local nlumps = le32(hdr, 5)
+    local dirofs = le32(hdr, 9)
+    if not nlumps or not dirofs or nlumps <= 0 then f:close(); return levels end
+    f:seek("set", dirofs)
+
+    local seen = {}
+    local left = nlumps
+    while left > 0 do
+        local batch = (left > 512) and 512 or left      -- 8KB per read
+        local dir = f:read(batch * 16)
+        if not dir or #dir < 16 then break end
+        for pos = 1, #dir - 15, 16 do
+            -- Only E... and MAP... can be level markers; skip the rest on one
+            -- byte rather than building a string per lump.
+            local c1 = dir:byte(pos + 8)
+            if c1 == 69 or c1 == 77 then        -- 'E' / 'M'
+                local name = dir:sub(pos + 8, pos + 15)
+                local z = name:find("\0", 1, true)      -- names are NUL-padded
+                if z then name = name:sub(1, z - 1) end
+                if not seen[name] then
+                    local ep, mp = name:match("^E(%d)M(%d)$")
+                    if ep then
+                        ep, mp = tonumber(ep), tonumber(mp)
+                        seen[name] = true
+                        levels[#levels + 1] = {
+                            name = name, ep = ep, map = mp, key = ep * 100 + mp,
+                        }
+                    else
+                        mp = name:match("^MAP(%d%d)$")
+                        if mp then
+                            mp = tonumber(mp)
+                            seen[name] = true
+                            levels[#levels + 1] = {
+                                name = name, ep = 0, map = mp, key = 1000 + mp,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+        left = left - batch
+    end
+    f:close()
+
+    table.sort(levels, function(a, b) return a.key < b.key end)
+    return levels
+end
+
 local found_wads = {}  -- { {name, path, wtype="iwad"|"pwad"}, ... }
 local seen_lower = {}
 
@@ -183,6 +258,45 @@ local kb
 local sfx_enabled = true
 local music_enabled = true
 
+-- Multiplayer choices (persisted). Mode: 1 host, 2 join over the USB cable,
+-- 3 join over WiFi by searching the network, 4 join over WiFi by address.
+-- Host options only matter when hosting: the host's game settings go to
+-- every player. They travel to the module as ONE "-netgame <spec>" argument.
+local mp_mode = 1
+local mp_players = 2          -- the host starts once this many are in
+local mp_dm = 0               -- 0 co-op, 1 deathmatch, 2 deathmatch 2
+local mp_skill = 3            -- 1..5
+local mp_level = ""           -- start level name, e.g. "E1M1" or "MAP07";
+                              -- "" (or a name the WAD lacks) = its first
+local mp_monsters = true
+local mp_respawn = false
+local mp_timer_min = 0        -- level time limit in minutes, 0 = none
+local mp_ip = ""              -- last host address typed
+local MP_TIMERS = { 0, 5, 10, 15, 20, 30 }
+
+-- Which WAD supplies the level list for the current selection: a mod's own
+-- levels when it has any, otherwise the base game's.
+local function selected_levels()
+    if #found_wads == 0 then return {} end
+    local w = found_wads[selected_wad]
+    local levels = wad_levels(w.path)
+    if #levels == 0 and w.wtype == "pwad" and #iwad_list > 0 then
+        levels = wad_levels(iwad_list[selected_base].path)
+    end
+    return levels
+end
+
+-- The chosen start level, or the WAD's first when the saved name isn't in it
+-- (a different WAD is selected now, or nothing has been chosen yet).
+local function mp_selected_level()
+    local levels = selected_levels()
+    if #levels == 0 then return nil end
+    for _, lv in ipairs(levels) do
+        if lv.name == mp_level then return lv end
+    end
+    return levels[1]
+end
+
 -- Save bindings + settings to config file
 local function save_config()
     local f = io.open(CFG_PATH, "w")
@@ -190,6 +304,15 @@ local function save_config()
     kb:save_lines(f)
     f:write(string.format("sfx=%d\n", sfx_enabled and 1 or 0))
     f:write(string.format("music=%d\n", music_enabled and 1 or 0))
+    f:write(string.format("mp_mode=%d\n", mp_mode))
+    f:write(string.format("mp_players=%d\n", mp_players))
+    f:write(string.format("mp_dm=%d\n", mp_dm))
+    f:write(string.format("mp_skill=%d\n", mp_skill))
+    f:write("mp_level=" .. mp_level .. "\n")
+    f:write(string.format("mp_monsters=%d\n", mp_monsters and 1 or 0))
+    f:write(string.format("mp_respawn=%d\n", mp_respawn and 1 or 0))
+    f:write(string.format("mp_timer=%d\n", mp_timer_min))
+    f:write("mp_ip=" .. mp_ip .. "\n")
     if #found_wads > 0 then
         f:write("wad=" .. found_wads[selected_wad].name .. "\n")
     end
@@ -218,6 +341,24 @@ local function load_config()
         if wname then selected_wad_name = wname end
         local bname = line:match("^basewad=(.+)$")
         if bname then selected_base_name = bname end
+        -- Multiplayer choices; out-of-range values fall back to defaults.
+        local mkey, mval = line:match("^mp_(%w+)=(.*)$")
+        if mkey then
+            local n = tonumber(mval)
+            if mkey == "mode" and n and n >= 1 and n <= 4 then mp_mode = n
+            elseif mkey == "players" and n and n >= 2 and n <= 4 then mp_players = n
+            elseif mkey == "dm" and n and n >= 0 and n <= 2 then mp_dm = n
+            elseif mkey == "skill" and n and n >= 1 and n <= 5 then mp_skill = n
+            elseif mkey == "level" then mp_level = mval
+            elseif mkey == "monsters" then mp_monsters = (mval == "1")
+            elseif mkey == "respawn" then mp_respawn = (mval == "1")
+            elseif mkey == "timer" and n then
+                for _, m in ipairs(MP_TIMERS) do
+                    if m == n then mp_timer_min = n end
+                end
+            elseif mkey == "ip" then mp_ip = mval
+            end
+        end
     end
     -- Migrate old backspace code: host used to produce 0x1B for backspace,
     -- now produces 0x08. Convert any saved bindings that reference 0x1B as
@@ -264,7 +405,11 @@ local scr
 local FONT = lvgl.BUILTIN_FONT.MONTSERRAT_12
 local ACCENT = "#FF4444"
 
+-- The Multiplayer screen's 1s link/WiFi status refresh; dies with its view.
+local mp_timer
+
 local function show_screen(builder)
+    if mp_timer then mp_timer:delete(); mp_timer = nil end
     local old = scr
     scr = root:Object({
         w = W, h = H, x = 0, y = 0,
@@ -293,6 +438,7 @@ end
 local function create_main_screen() end
 local function create_help_screen() end
 local function create_about_screen() end
+local function create_multiplayer_screen() end
 
 -- Controls, the key picker and the trackball Input screen all live in
 -- lib/keybind. It renders through this app's show_screen, so the view stack,
@@ -307,6 +453,52 @@ kb = keybind.new{
     on_save     = save_config,
     trackball   = { momentum = true, impulse = 15, friction = 82, thresh = 4 },
 }
+
+-- Module argument list: WAD, base IWAD for mods, audio flags, the key and
+-- trackball bindings, and the touch layout (staged for the next launch).
+-- Shared by single-player Play and the Multiplayer screen, which appends its
+-- own -netgame spec. Returns the list, or nil plus a status message.
+local function build_launch_args()
+    if #found_wads == 0 then return nil, "No WAD file found!" end
+    local w = found_wads[selected_wad]
+    local vfs_wad = to_vfs_path(w.path)
+    local wad_dir = vfs_wad:match("^(.*)/") or "."
+    local args
+    if w.wtype == "pwad" then
+        -- PWADs need a base IWAD
+        if #iwad_list == 0 then return nil, "No base IWAD found!" end
+        local base = iwad_list[selected_base]
+        local vfs_base = to_vfs_path(base.path)
+        args = {ELF_PATH, "-iwad", vfs_base,
+                "-file", vfs_wad,
+                "-configdir", wad_dir}
+    else
+        args = {ELF_PATH, "-iwad", vfs_wad,
+                "-configdir", wad_dir}
+    end
+    -- Independent audio flags: -nosfx keeps music alive (the module pumps
+    -- it via the music Poll), unlike -nosound.
+    if not sfx_enabled then
+        args[#args + 1] = "-nosfx"
+    end
+    if not music_enabled then
+        args[#args + 1] = "-nomusic"
+    end
+    -- -keymap is omitted when nothing is bound, so the firmware falls back
+    -- to passthrough rather than an empty table.
+    local km = kb:keymap_string()
+    if km then
+        args[#args + 1] = "-keymap"
+        args[#args + 1] = km
+    end
+    args[#args + 1] = "-trkball"
+    args[#args + 1] = kb:trkball_string()
+    if _elf_touch_layout and pad then
+        local tl = pad:zones()
+        if tl then _elf_touch_layout(tl) end
+    end
+    return args
+end
 
 -- ============================================================
 -- Main screen
@@ -425,50 +617,14 @@ create_main_screen = function()
                 return
             end
             status:set{ text = "Loading Doom..." }
-            local km = kb:keymap_string()
             lvgl.Timer{
                 period = 50,
                 cb = function(t)
                     t:delete()
-                    local w = found_wads[selected_wad]
-                    local vfs_wad = to_vfs_path(w.path)
-                    local wad_dir = vfs_wad:match("^(.*)/") or "."
-                    local args = {}
-
-                    if w.wtype == "pwad" then
-                        -- PWADs need a base IWAD
-                        if #iwad_list == 0 then
-                            status:set{ text = "No base IWAD found!" }
-                            return
-                        end
-                        local base = iwad_list[selected_base]
-                        local vfs_base = to_vfs_path(base.path)
-                        args = {ELF_PATH, "-iwad", vfs_base,
-                                "-file", vfs_wad,
-                                "-configdir", wad_dir}
-                    else
-                        args = {ELF_PATH, "-iwad", vfs_wad,
-                                "-configdir", wad_dir}
-                    end
-                    -- Independent audio flags: -nosfx keeps music alive (the
-                    -- module pumps it via the music Poll), unlike -nosound.
-                    if not sfx_enabled then
-                        args[#args + 1] = "-nosfx"
-                    end
-                    if not music_enabled then
-                        args[#args + 1] = "-nomusic"
-                    end
-                    -- -keymap is omitted when nothing is bound, so the firmware
-                    -- falls back to passthrough rather than an empty table.
-                    if km then
-                        args[#args + 1] = "-keymap"
-                        args[#args + 1] = km
-                    end
-                    args[#args + 1] = "-trkball"
-                    args[#args + 1] = kb:trkball_string()
-                    if _elf_touch_layout and pad then
-                        local tl = pad:zones()
-                        if tl then _elf_touch_layout(tl) end
+                    local args, err = build_launch_args()
+                    if not args then
+                        status:set{ text = err }
+                        return
                     end
                     -- Deferred launch: the firmware tears Lua down, runs Doom, then
                     -- recreates Lua and returns to the launcher home. _launch_elf only
@@ -481,6 +637,10 @@ create_main_screen = function()
         local ctrlBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
         ctrlBtn:Label{ text = "Controls", align = lvgl.ALIGN.CENTER }
         ctrlBtn:onClicked(function() kb:open() end)
+
+        local mpBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+        mpBtn:Label{ text = "Multiplayer", align = lvgl.ALIGN.CENTER }
+        mpBtn:onClicked(function() create_multiplayer_screen() end)
 
         if pad then
             local touchBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
@@ -507,6 +667,299 @@ create_main_screen = function()
         local aboutBtn = c:Button{ w = lvgl.PCT(48), h = 30 }
         aboutBtn:Label{ text = "About", align = lvgl.ALIGN.CENTER }
         aboutBtn:onClicked(function() create_about_screen() end)
+    end)
+end
+
+-- ============================================================
+-- Multiplayer screen — every network choice is made here; the game itself
+-- only shows status text while it connects and waits (no dialogs of its
+-- own). The choices reach the module as one argument, "-netgame <spec>".
+-- Host: waits until `players` decks are in, then starts with these options.
+-- Join: over the USB cable, by searching the WiFi network, or by address.
+-- ============================================================
+local function mp_spec()
+    local t = {}
+    if mp_mode == 1 then
+        t[#t + 1] = "host"
+        t[#t + 1] = "players=" .. mp_players
+        t[#t + 1] = "dm=" .. mp_dm
+        t[#t + 1] = "skill=" .. mp_skill
+        -- Start level. The module takes an episode and a map and applies
+        -- whichever its WAD's game type uses; both are omitted when the
+        -- WAD's levels could not be read, leaving the game's own first one.
+        local lv = mp_selected_level()
+        if lv then
+            if lv.ep > 0 then t[#t + 1] = "ep=" .. lv.ep end
+            t[#t + 1] = "map=" .. lv.map
+        end
+        if not mp_monsters then t[#t + 1] = "nomon=1" end
+        if mp_respawn then t[#t + 1] = "respawn=1" end
+        if mp_timer_min > 0 then t[#t + 1] = "timer=" .. mp_timer_min end
+    elseif mp_mode == 2 then
+        t[#t + 1] = "join=usb"
+    elseif mp_mode == 3 then
+        t[#t + 1] = "join=lan"
+    else
+        t[#t + 1] = "join=" .. mp_ip
+    end
+    return table.concat(t, ",")
+end
+
+-- Kick the firmware's saved-network connect round and poll for it (the
+-- downloader's wifi_wait pattern). cb(connected) runs on the event loop.
+local function wifi_wait(wait_ms, cb)
+    if _wifi_status() == "connected" then cb(true) return end
+    pcall(_wifi_auto_connect)
+    local waited = 0
+    lvgl.Timer{ period = 500, cb = function(t)
+        if _wifi_status() == "connected" then
+            t:delete()
+            cb(true)
+            return
+        end
+        waited = waited + 500
+        if waited >= wait_ms then
+            t:delete()
+            cb(false)
+        end
+    end }
+end
+
+local function cable_up()
+    return _gblink_status ~= nil and _gblink_status() > 0
+end
+
+create_multiplayer_screen = function()
+    show_screen(function(c)
+        heading(c, "MULTIPLAYER", ACCENT)
+
+        local modeDd = c:Dropdown{
+            options = "Host a game\nJoin over USB cable\n"
+                   .. "Join over WiFi (search)\nJoin over WiFi (address)",
+            w = lvgl.PCT(100), h = 28,
+        }
+        modeDd:set{ selected = mp_mode - 1 }
+
+        local ipTa = c:Textarea{
+            password_mode = false, one_line = true,
+            placeholder_text = "host address, e.g. 192.168.1.5",
+            text = mp_ip,
+            w = lvgl.PCT(100), h = 30,
+        }
+        ipTa:clear_flag(lvgl.FLAG.SCROLLABLE)
+
+        -- Host options: label + control pairs, all direct children of the
+        -- scope container so the trackball reaches every control.
+        local function opt_label(text)
+            return c:Label{
+                text = text, text_font = FONT, text_color = "#AAAAAA",
+                w = lvgl.PCT(48), h = 28,
+            }
+        end
+        local function opt_dropdown(options, selected)
+            local dd = c:Dropdown{ options = options, w = lvgl.PCT(48), h = 28 }
+            dd:set{ selected = selected }
+            return dd
+        end
+
+        local playersLbl = opt_label("Players")
+        local playersDd = opt_dropdown("2\n3\n4", mp_players - 2)
+        playersDd:onevent(lvgl.EVENT.VALUE_CHANGED, function()
+            mp_players = playersDd:get("selected") + 2
+            save_config()
+        end)
+
+        local gameLbl = opt_label("Game")
+        local gameDd = opt_dropdown("Co-op\nDeathmatch\nDeathmatch 2", mp_dm)
+        gameDd:onevent(lvgl.EVENT.VALUE_CHANGED, function()
+            mp_dm = gameDd:get("selected")
+            save_config()
+        end)
+
+        local skillLbl = opt_label("Skill")
+        local skillDd = opt_dropdown(
+            "1 Too young to die\n2 Not too rough\n3 Hurt me plenty\n"
+         .. "4 Ultra-Violence\n5 Nightmare", mp_skill - 1)
+        skillDd:onevent(lvgl.EVENT.VALUE_CHANGED, function()
+            mp_skill = skillDd:get("selected") + 1
+            save_config()
+        end)
+
+        -- Start level: exactly the levels the chosen WAD holds, read from the
+        -- WAD itself, so Doom 1 offers E1M1.. and Doom 2 offers MAP01.. and
+        -- neither offers a level that isn't there.
+        local levels = selected_levels()
+        local level_names, level_sel = {}, 0
+        if #levels == 0 then
+            level_names[1] = "First level"
+        else
+            local matched = false
+            for i, lv in ipairs(levels) do
+                level_names[i] = lv.name
+                if lv.name == mp_level then
+                    level_sel = i - 1
+                    matched = true
+                end
+            end
+            if not matched then mp_level = levels[1].name end
+        end
+        local levelLbl = opt_label("Start level")
+        local levelDd = opt_dropdown(table.concat(level_names, "\n"), level_sel)
+        levelDd:onevent(lvgl.EVENT.VALUE_CHANGED, function()
+            local lv = levels[levelDd:get("selected") + 1]
+            if lv then
+                mp_level = lv.name
+                save_config()
+            end
+        end)
+
+        local timer_names, timer_sel = {}, 0
+        for i, m in ipairs(MP_TIMERS) do
+            timer_names[i] = (m == 0) and "No limit" or (m .. " min")
+            if m == mp_timer_min then timer_sel = i - 1 end
+        end
+        local timerLbl = opt_label("Level time limit")
+        local timerDd = opt_dropdown(table.concat(timer_names, "\n"), timer_sel)
+        timerDd:onevent(lvgl.EVENT.VALUE_CHANGED, function()
+            mp_timer_min = MP_TIMERS[timerDd:get("selected") + 1]
+            save_config()
+        end)
+
+        local monBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        local monLbl = monBtn:Label{
+            text = mp_monsters and "Monsters: ON" or "Monsters: OFF",
+            align = lvgl.ALIGN.CENTER,
+        }
+        monBtn:onClicked(function()
+            mp_monsters = not mp_monsters
+            monLbl:set{ text = mp_monsters and "Monsters: ON" or "Monsters: OFF" }
+            save_config()
+        end)
+
+        local respBtn = c:Button{ w = lvgl.PCT(48), h = 28 }
+        local respLbl = respBtn:Label{
+            text = mp_respawn and "Respawn: ON" or "Respawn: OFF",
+            align = lvgl.ALIGN.CENTER,
+        }
+        respBtn:onClicked(function()
+            mp_respawn = not mp_respawn
+            respLbl:set{ text = mp_respawn and "Respawn: ON" or "Respawn: OFF" }
+            save_config()
+        end)
+
+        local host_widgets = {
+            playersLbl, playersDd, gameLbl, gameDd, skillLbl, skillDd,
+            levelLbl, levelDd, timerLbl, timerDd, monBtn, respBtn,
+        }
+        local function apply_mode()
+            for _, wdg in ipairs(host_widgets) do
+                if mp_mode == 1 then
+                    wdg:clear_flag(lvgl.FLAG.HIDDEN)
+                else
+                    wdg:add_flag(lvgl.FLAG.HIDDEN)
+                end
+            end
+            if mp_mode == 4 then
+                ipTa:clear_flag(lvgl.FLAG.HIDDEN)
+            else
+                ipTa:add_flag(lvgl.FLAG.HIDDEN)
+            end
+        end
+        apply_mode()
+        modeDd:onevent(lvgl.EVENT.VALUE_CHANGED, function()
+            mp_mode = modeDd:get("selected") + 1
+            apply_mode()
+            save_config()
+        end)
+
+        -- Live link + WiFi status (both can change while this screen is up).
+        local stat = c:Label{
+            text = "", text_font = FONT, text_color = "#FFCC44",
+            w = lvgl.PCT(100), h = lvgl.SIZE_CONTENT,
+        }
+        local function refresh_status()
+            local s, ip = _wifi_status()
+            local wifi
+            if s == "connected" then wifi = "WiFi: " .. ip
+            elseif s == "connecting" then wifi = "WiFi: connecting..."
+            else wifi = "WiFi: " .. s end
+            stat:set{ text = (cable_up() and "USB link: connected" or "USB link: none")
+                          .. "\n" .. wifi }
+        end
+        refresh_status()
+        mp_timer = lvgl.Timer{ period = 1000, cb = refresh_status }
+
+        local startBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+        startBtn:Label{ text = "Start", align = lvgl.ALIGN.CENTER }
+        startBtn:onClicked(function()
+            mp_ip = (ipTa.text or ""):gsub("%s+", "")
+            save_config()
+            if mp_mode == 4 and mp_ip == "" then
+                stat:set{ text = "Enter the host's address first" }
+                return
+            end
+            if mp_mode == 2 and not cable_up() then
+                stat:set{ text = "No USB link - connect the cable" }
+                return
+            end
+
+            local function go()
+                local args, err = build_launch_args()
+                if not args then
+                    stat:set{ text = err }
+                    return
+                end
+                args[#args + 1] = "-netgame"
+                args[#args + 1] = mp_spec()
+                stat:set{ text = "Loading Doom..." }
+                lvgl.Timer{ period = 50, cb = function(t)
+                    t:delete()
+                    _launch_elf(table.unpack(args))
+                end }
+            end
+
+            local wifi_on = (_wifi_get_enabled == nil) or _wifi_get_enabled()
+            if mp_mode == 2 then
+                go()
+            elseif mp_mode == 1 then
+                -- A host listens on whatever is up: the cable, WiFi, or both.
+                if wifi_on and _wifi_status() ~= "connected" then
+                    stat:set{ text = "Connecting WiFi..." }
+                    wifi_wait(15000, function(ok)
+                        if ok or cable_up() then
+                            go()
+                        else
+                            stat:set{ text = "No USB link and no WiFi" }
+                        end
+                    end)
+                elseif _wifi_status() == "connected" or cable_up() then
+                    go()
+                else
+                    stat:set{ text = "No USB link and no WiFi" }
+                end
+            else
+                if not wifi_on then
+                    stat:set{ text = "Turn WiFi on first (Settings)" }
+                    return
+                end
+                stat:set{ text = "Connecting WiFi..." }
+                wifi_wait(15000, function(ok)
+                    if ok then
+                        go()
+                    else
+                        stat:set{ text = "WiFi did not connect" }
+                    end
+                end)
+            end
+        end)
+
+        local backBtn = c:Button{ w = lvgl.PCT(48), h = 34 }
+        backBtn:Label{ text = "Back", align = lvgl.ALIGN.CENTER }
+        backBtn:onClicked(function()
+            mp_ip = (ipTa.text or ""):gsub("%s+", "")
+            save_config()
+            create_main_screen()
+        end)
     end)
 end
 
