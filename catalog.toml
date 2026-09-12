@@ -31,7 +31,7 @@
 
 [meta]
 version = 1
-updated = "2026-09-10"
+updated = "2026-09-12"
 
 # ── Download-only apps (not shipped in firmware) ─────────────────────────────
 
@@ -390,7 +390,7 @@ files = ["readme.lua", "main.lua"]
 id = "Device"
 name = "Device"
 author = "PhilMo6"
-version = "1.2.0"
+version = "1.2.1"
 type = "lua"
 description = "Device settings"
 locked = true
@@ -492,7 +492,7 @@ files = ["main.lua"]
 id = "Sound"
 name = "Sound"
 author = "PhilMo6"
-version = "1.0.0"
+version = "1.0.1"
 type = "lua"
 description = "Sound settings"
 locked = true
@@ -682,7 +682,7 @@ name = "Doom"
 author = "PhilMo6"
 version = "1.0.0"
 description = "DOOM-styled"
-files = ["theme.lua"]
+files = ["theme.lua", "AmazDooMLeft.ttf"]
 
 [[themes]]
 id = "forest"
@@ -723,6 +723,14 @@ author = "PhilMo6"
 version = "1.0.0"
 description = "LoRa mesh night map with signal traces"
 files = ["theme.lua"]
+
+[[themes]]
+id = "meshpunk"
+name = "Meshpunk"
+author = "PhilMo6"
+version = "1.0.0"
+description = "The Meshpunk logo, lit up"
+files = ["theme.lua", "wall.png"]
 
 [[themes]]
 id = "midnight"
